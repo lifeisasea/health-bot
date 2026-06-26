@@ -20,6 +20,7 @@ async def chat(
     system: str,
     user_text: str,
     image: Optional[bytes] = None,
+    pdf: Optional[bytes] = None,
     max_tokens: int = 1200,
     temperature: float = 0.4,
 ) -> str:
@@ -33,6 +34,17 @@ async def chat(
             {
                 "type": "image",
                 "source": {"type": "base64", "media_type": "image/jpeg", "data": b64},
+            }
+        )
+    if pdf is not None:
+        content.append(
+            {
+                "type": "document",
+                "source": {
+                    "type": "base64",
+                    "media_type": "application/pdf",
+                    "data": base64.b64encode(pdf).decode(),
+                },
             }
         )
 

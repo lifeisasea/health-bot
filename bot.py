@@ -33,6 +33,7 @@ import config
 import db
 import persistence
 import prompts
+import llm
 from llm import chat, chat_json
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
@@ -53,10 +54,12 @@ async def cmd_help(m: Message):
     await m.answer(
         "Привет! Я слежу за твоим питанием и помогаю советами.\n\n"
         "📷 Пришли фото еды — оценю КБЖУ и запишу.\n"
+        "🧪 Пришли анализ (PDF или фото бланка) — распознаю и сохраню в историю.\n"
         "💬 Спроси что угодно — «что выбрать на обед?», «полезно ли это съесть?», "
-        "«какая активность сегодня?» — отвечу с учётом твоих данных.\n\n"
+        "«какая активность сегодня?» — отвечу с учётом твоих данных и анализов.\n\n"
         "Команды:\n"
         "/today — что съедено за день\n"
+        "/labs — сводка по анализам\n"
         "/summary — разбор питания за сегодня сейчас\n"
         "/allergies <текст> — указать аллергии\n"
         "/goal <текст> — изменить цель\n"
@@ -149,6 +152,78 @@ async def cmd_today(m: Message):
         f"Сегодня:\n{listing}\n\n"
         f"Итого ≈ {t['calories']} ккал (Б {t['protein_g']} / Ж {t['fat_g']} / У {t['carbs_g']})"
     )
+
+
+@dp.message(Command("labs"))
+async def cmd_labs(m: Message):
+    ov = db.labs_overview()
+    if not ov["count"]:
+        await m.answer("Анализов пока нет. Пришли файл (PDF или фото бланка) — распознаю и сохраню.")
+        return
+    txt = (
+        f"🧪 Анализы: {ov['count']} показателей за {ov['date_min']}–{ov['date_max']} "
+        f"({ov['markers']} разных).\n\n"
+    )
+    if ov["abnormal"]:
+        txt += "Последние вне нормы:\n" + "\n".join(
+            f"{r['flag']} {r['name']}: {r['value']} {r['unit']} (норма {r['reference']}, {r['date']})"
+            for r in ov["abnormal"][:30]
+        )
+    else:
+        txt += "Свежих отклонений нет 👍"
+    await m.answer(txt[:4000])
+
+
+def _store_lab_doc(parsed: dict) -> tuple[int, list]:
+    date = (parsed.get("date") or "").strip()
+    lab = (parsed.get("lab") or "").strip()
+    added, abn = 0, []
+    for it in parsed.get("items", []) or []:
+        row = {
+            "date": date,
+            "lab": lab,
+            "category": it.get("category"),
+            "name": it.get("name"),
+            "value": it.get("value"),
+            "unit": it.get("unit"),
+            "reference": it.get("reference"),
+            "flag": it.get("flag"),
+        }
+        if db.add_lab(row, source="telegram"):
+            added += 1
+            if (it.get("flag") or "").strip():
+                abn.append(row)
+    return added, abn
+
+
+@dp.message(F.document)
+async def on_document(m: Message):
+    doc = m.document
+    name = (doc.file_name or "").lower()
+    is_pdf = (doc.mime_type == "application/pdf") or name.endswith(".pdf")
+    is_img = (doc.mime_type or "").startswith("image/") or name.endswith((".jpg", ".jpeg", ".png", ".webp"))
+    if not (is_pdf or is_img):
+        await m.answer("Пришли анализ как PDF или фото — другие форматы пока не читаю.")
+        return
+    await m.answer("Читаю анализ… 🧪")
+    file = await bot.get_file(doc.file_id)
+    data = (await bot.download_file(file.file_path)).read()
+
+    parsed = await llm.extract_labs(
+        "Распознай показатели из этого анализа.",
+        image=data if is_img else None,
+        pdf=data if is_pdf else None,
+    )
+    if not parsed or not parsed.get("items"):
+        await m.answer("Не получилось разобрать анализ 😕 Попробуй более чёткий скан/фото.")
+        return
+    added, abn = _store_lab_doc(parsed)
+    reply = f"✅ Сохранила анализ от {parsed.get('date','?')}: {added} показателей."
+    if abn:
+        reply += "\n\nВне нормы:\n" + "\n".join(
+            f"{r['flag']} {r['name']}: {r['value']} {r['unit']} (норма {r['reference']})" for r in abn[:15]
+        )
+    await m.answer(reply[:4000])
 
 
 @dp.message(Command("summary"))

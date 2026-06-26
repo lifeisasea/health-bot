@@ -43,6 +43,21 @@ def init() -> None:
                 photo_path  TEXT,
                 raw         TEXT            -- полный JSON от модели
             );
+
+            CREATE TABLE IF NOT EXISTS labs (
+                id        INTEGER PRIMARY KEY AUTOINCREMENT,
+                date      TEXT,             -- ISO date анализа
+                lab       TEXT,             -- лаборатория
+                category  TEXT,
+                name      TEXT,             -- показатель
+                value     TEXT,             -- результат (текст: бывает "<3.0")
+                unit      TEXT,
+                reference TEXT,
+                flag      TEXT,             -- ↑ / ↓ / пусто
+                source    TEXT,             -- import:xlsx | telegram
+                added_at  TEXT
+            );
+            CREATE INDEX IF NOT EXISTS idx_labs_name_date ON labs(name, date);
             """
         )
 
@@ -152,3 +167,87 @@ def day_totals(day: str) -> dict:
         "fat_g": round(sum(m["fat_g"] or 0 for m in meals)),
         "carbs_g": round(sum(m["carbs_g"] or 0 for m in meals)),
     }
+
+
+# ---------- анализы ----------
+
+def add_lab(row: dict, source: str = "telegram", dedup: bool = True) -> bool:
+    """Добавить один показатель анализа. Вернуть True, если вставлено (False — дубль)."""
+    date = (row.get("date") or "").strip()
+    name = (row.get("name") or "").strip()
+    value = ("" if row.get("value") is None else str(row.get("value"))).strip()
+    if not name:
+        return False
+    with _conn() as c:
+        if dedup:
+            dup = c.execute(
+                "SELECT 1 FROM labs WHERE date=? AND name=? AND value=?",
+                (date, name, value),
+            ).fetchone()
+            if dup:
+                return False
+        c.execute(
+            "INSERT INTO labs(date, lab, category, name, value, unit, reference, flag, "
+            "source, added_at) VALUES(?,?,?,?,?,?,?,?,?,?)",
+            (
+                date,
+                (row.get("lab") or "").strip(),
+                (row.get("category") or "").strip(),
+                name,
+                value,
+                (row.get("unit") or "").strip(),
+                (row.get("reference") or "").strip(),
+                (row.get("flag") or "").strip(),
+                source,
+                datetime.now().isoformat(timespec="seconds"),
+            ),
+        )
+    persistence.mark_dirty()
+    return True
+
+
+def labs_count() -> int:
+    with _conn() as c:
+        return c.execute("SELECT COUNT(*) AS n FROM labs").fetchone()["n"]
+
+
+def latest_per_marker() -> list[dict]:
+    """Последнее значение по каждому показателю (по самой свежей дате)."""
+    with _conn() as c:
+        rows = c.execute(
+            "SELECT t.* FROM labs t JOIN ("
+            "  SELECT name, MAX(date) AS md FROM labs GROUP BY name"
+            ") m ON t.name=m.name AND t.date=m.md ORDER BY t.category, t.name"
+        ).fetchall()
+        # на одну дату может быть несколько строк одного имени — берём по одной
+        seen, out = set(), []
+        for r in rows:
+            if r["name"] in seen:
+                continue
+            seen.add(r["name"])
+            out.append(dict(r))
+        return out
+
+
+def labs_overview() -> dict:
+    """Сводка для контекста: диапазон дат, кол-во, последние отклонения (с флагом)."""
+    latest = latest_per_marker()
+    with _conn() as c:
+        rng = c.execute("SELECT MIN(date) AS lo, MAX(date) AS hi FROM labs").fetchone()
+    abnormal = [r for r in latest if r["flag"]]
+    return {
+        "count": labs_count(),
+        "markers": len(latest),
+        "date_min": rng["lo"] if rng else None,
+        "date_max": rng["hi"] if rng else None,
+        "abnormal": abnormal,
+        "latest": latest,
+    }
+
+
+def marker_history(name: str) -> list[dict]:
+    with _conn() as c:
+        rows = c.execute(
+            "SELECT * FROM labs WHERE name=? ORDER BY date", (name,)
+        ).fetchall()
+        return [dict(r) for r in rows]
