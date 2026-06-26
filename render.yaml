@@ -1,0 +1,20 @@
+services:
+  - type: web
+    name: health-bot
+    runtime: docker
+    plan: free
+    envVars:
+      - key: MINIMAX_API_KEY
+        sync: false
+      - key: TELEGRAM_BOT_TOKEN
+        sync: false
+      - key: OWNER_ID
+        sync: false
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: HF_TOKEN
+        sync: false
+      - key: HF_BACKUP_REPO
+        sync: false
+      - key: TIMEZONE
+        sync: false

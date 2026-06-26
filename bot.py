@@ -293,11 +293,27 @@ class _Health(BaseHTTPRequestHandler):
 
 
 def start_health_server():
-    """Мини HTTP-сервер для health-check Hugging Face Spaces."""
+    """Мини HTTP-сервер для health-check (HF Spaces / Render)."""
     port = int(os.getenv("PORT", "7860"))
     srv = HTTPServer(("0.0.0.0", port), _Health)
     threading.Thread(target=srv.serve_forever, daemon=True).start()
     log.info("Health-check слушает порт %s", port)
+
+
+async def keepalive():
+    """Самопинг своего публичного адреса, чтобы бесплатный Render не засыпал."""
+    url = os.getenv("RENDER_EXTERNAL_URL")
+    if not url:
+        return
+    import aiohttp
+
+    while True:
+        await asyncio.sleep(600)  # каждые 10 минут
+        try:
+            async with aiohttp.ClientSession() as s:
+                await s.get(url, timeout=aiohttp.ClientTimeout(total=20))
+        except Exception as e:
+            log.warning("keepalive ping не прошёл: %s", e)
 
 
 def setup_scheduler():
@@ -328,6 +344,7 @@ async def main():
     setup_scheduler()
     if not config.OWNER_ID:
         log.warning("OWNER_ID не задан — бот отвечает ВСЕМ. Отправь боту /id, впиши число в .env, перезапусти.")
+    asyncio.create_task(keepalive())
     log.info("Бот запущен.")
     try:
         while True:
