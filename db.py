@@ -72,6 +72,18 @@ def init() -> None:
                 hrv                INTEGER,
                 updated_at         TEXT
             );
+
+            CREATE TABLE IF NOT EXISTS garmin_activities (
+                activity_id  INTEGER PRIMARY KEY,
+                date         TEXT,
+                type         TEXT,
+                name         TEXT,
+                duration_min REAL,
+                distance_km  REAL,
+                calories     REAL,
+                added_at     TEXT
+            );
+            CREATE INDEX IF NOT EXISTS idx_gact_date ON garmin_activities(date);
             """
         )
 
@@ -310,6 +322,37 @@ def garmin_range(start_day: str, end_day: str) -> list[dict]:
     with _conn() as c:
         rows = c.execute(
             "SELECT * FROM garmin_daily WHERE date BETWEEN ? AND ? ORDER BY date",
+            (start_day, end_day),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+
+def add_garmin_activity(a: dict) -> None:
+    aid = a.get("activity_id")
+    if not aid:
+        return
+    with _conn() as c:
+        c.execute(
+            "INSERT OR REPLACE INTO garmin_activities(activity_id, date, type, name, "
+            "duration_min, distance_km, calories, added_at) VALUES(?,?,?,?,?,?,?,?)",
+            (
+                aid,
+                (a.get("date") or "").strip(),
+                a.get("type"),
+                a.get("name"),
+                a.get("duration_min"),
+                a.get("distance_km"),
+                a.get("calories"),
+                datetime.now().isoformat(timespec="seconds"),
+            ),
+        )
+    persistence.mark_dirty()
+
+
+def garmin_activities_range(start_day: str, end_day: str) -> list[dict]:
+    with _conn() as c:
+        rows = c.execute(
+            "SELECT * FROM garmin_activities WHERE date BETWEEN ? AND ? ORDER BY date DESC",
             (start_day, end_day),
         ).fetchall()
         return [dict(r) for r in rows]

@@ -90,3 +90,46 @@ def fetch_day(c, datestr: str) -> dict:
     if isinstance(hrv, dict):
         out["hrv"] = _num((hrv.get("hrvSummary") or {}).get("lastNightAvg"))
     return out
+
+
+# человекочитаемые названия типов тренировок
+_TYPE_RU = {
+    "lap_swimming": "Плавание", "open_water_swimming": "Плавание (открытая вода)",
+    "swimming": "Плавание", "running": "Бег", "treadmill_running": "Бег (дорожка)",
+    "walking": "Ходьба", "hiking": "Хайкинг", "cycling": "Велосипед",
+    "indoor_cycling": "Велотренажёр", "strength_training": "Силовая",
+    "yoga": "Йога", "pilates": "Пилатес", "cardio": "Кардио",
+    "elliptical": "Эллипс", "fitness_equipment": "Тренажёры",
+}
+
+
+def type_ru(typekey: Optional[str]) -> str:
+    if not typekey:
+        return "Тренировка"
+    return _TYPE_RU.get(typekey, typekey.replace("_", " ").capitalize())
+
+
+def fetch_activities(c, start_date: str, end_date: str) -> list:
+    """Тренировки (заплывы, бег, силовая и т.п.) за период."""
+    try:
+        acts = c.get_activities_by_date(start_date, end_date)
+    except Exception as e:
+        log.warning("garmin activities: %s", e)
+        return []
+    out = []
+    for a in acts or []:
+        try:
+            dur = a.get("duration") or 0
+            dist = a.get("distance") or 0
+            out.append({
+                "activity_id": a.get("activityId"),
+                "date": (a.get("startTimeLocal") or "")[:10],
+                "type": (a.get("activityType") or {}).get("typeKey"),
+                "name": a.get("activityName"),
+                "duration_min": round(dur / 60, 1) if dur else None,
+                "distance_km": round(dist / 1000, 2) if dist else None,
+                "calories": a.get("calories"),
+            })
+        except Exception:
+            continue
+    return out

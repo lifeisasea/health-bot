@@ -377,12 +377,23 @@ async def send_weekly_summary():
             return round(sum(xs) / len(xs), 1) if xs else None
         garmin_txt = (
             f"Garmin за неделю (среднее): сон {avg('sleep_hours')} ч, "
-            f"пульс покоя {avg('resting_hr')}, готовность {avg('training_readiness')}/100, "
+            f"пульс покоя {avg('resting_hr')}, "
             f"стресс {avg('stress_avg')}, шаги {avg('steps')}, "
             f"body battery {avg('body_battery')}, VO2max {avg('vo2max')}."
         )
     else:
         garmin_txt = "Данных Garmin за неделю нет."
+
+    acts = db.garmin_activities_range(start.isoformat(), end.isoformat())
+    if acts:
+        garmin_txt += "\nТренировки за неделю:\n" + "\n".join(
+            f"- {a['date']} {garmin_client.type_ru(a.get('type'))}: "
+            + ", ".join(filter(None, [
+                f"{a['distance_km']} км" if a.get("distance_km") else None,
+                f"{a['duration_min']} мин" if a.get("duration_min") else None,
+            ]))
+            for a in acts
+        )
 
     system = (
         prompts.BASE_PERSONA
@@ -449,6 +460,10 @@ async def pull_garmin(days: int = 3):
                 db.add_garmin_day(garmin_client.fetch_day(c, d))
             except Exception as e:
                 log.warning("Garmin %s: %s", d, e)
+        # тренировки за последнюю неделю (заплывы, бег и т.п.)
+        start = (date.today() - timedelta(days=max(days, 7))).isoformat()
+        for a in garmin_client.fetch_activities(c, start, date.today().isoformat()):
+            db.add_garmin_activity(a)
 
     try:
         await asyncio.to_thread(work)

@@ -42,34 +42,68 @@ def _context_block() -> str:
 
 
 def _garmin_block() -> str:
-    """Свежие метрики Garmin для советов по активности."""
+    """Метрики Garmin: сегодня + неделя + последние тренировки."""
+    import garmin_client
+    from datetime import date, timedelta
+
     g = db.garmin_latest()
-    if not g:
+    week = db.garmin_range((date.today() - timedelta(days=7)).isoformat(), date.today().isoformat())
+    acts = db.garmin_activities_range((date.today() - timedelta(days=7)).isoformat(), date.today().isoformat())
+    if not g and not week and not acts:
         return ""
-    p = []
-    if g.get("sleep_hours"):
-        p.append(f"сон {g['sleep_hours']} ч" + (f" (оценка {g['sleep_score']})" if g.get("sleep_score") else ""))
-    if g.get("training_readiness") is not None:
-        p.append(f"готовность к нагрузке {g['training_readiness']}/100")
-    if g.get("body_battery") is not None:
-        p.append(f"body battery {g['body_battery']}")
-    if g.get("resting_hr"):
-        p.append(f"пульс покоя {g['resting_hr']}")
-    if g.get("stress_avg") is not None:
-        p.append(f"стресс {g['stress_avg']}")
-    if g.get("steps"):
-        p.append(f"шаги {g['steps']}")
-    if g.get("hrv"):
-        p.append(f"HRV {g['hrv']}")
-    if g.get("vo2max"):
-        p.append(f"VO2max {g['vo2max']}")
-    if not p:
-        return ""
-    return (
-        f"ДАННЫЕ GARMIN (на {g['date']}): " + ", ".join(p) + ". "
-        "Учитывай при советах по активности: низкая готовность/плохой сон/высокий стресс → "
-        "лёгкая нагрузка или отдых; хорошее восстановление → можно интенсивнее.\n"
+
+    out = []
+    if g:
+        p = []
+        if g.get("sleep_hours"):
+            p.append(f"сон {g['sleep_hours']} ч" + (f" (оценка {g['sleep_score']})" if g.get("sleep_score") else ""))
+        if g.get("training_readiness") is not None:
+            p.append(f"готовность {g['training_readiness']}/100")
+        if g.get("body_battery") is not None:
+            p.append(f"body battery {g['body_battery']}")
+        if g.get("resting_hr"):
+            p.append(f"пульс покоя {g['resting_hr']}")
+        if g.get("stress_avg") is not None:
+            p.append(f"стресс {g['stress_avg']}")
+        if g.get("steps"):
+            p.append(f"шаги {g['steps']}")
+        if g.get("hrv"):
+            p.append(f"HRV {g['hrv']}")
+        if g.get("vo2max"):
+            p.append(f"VO2max {g['vo2max']}")
+        if p:
+            out.append(f"ДАННЫЕ GARMIN (на {g['date']}): " + ", ".join(p) + ".")
+
+    if week:
+        def avg(f):
+            xs = [d[f] for d in week if d.get(f) is not None]
+            return round(sum(xs) / len(xs), 1) if xs else None
+        out.append(
+            f"За 7 дней (среднее): сон {avg('sleep_hours')} ч, шаги {avg('steps')}, "
+            f"пульс покоя {avg('resting_hr')}, стресс {avg('stress_avg')}."
+        )
+
+    if acts:
+        lines = []
+        for a in acts[:12]:
+            parts = [garmin_client.type_ru(a.get("type"))]
+            if a.get("distance_km"):
+                parts.append(f"{a['distance_km']} км")
+            if a.get("duration_min"):
+                parts.append(f"{a['duration_min']} мин")
+            if a.get("calories"):
+                parts.append(f"{round(a['calories'])} ккал")
+            lines.append(f"  {a['date']}: " + ", ".join(parts))
+        out.append("Тренировки за 7 дней:\n" + "\n".join(lines))
+    else:
+        out.append("Отдельных тренировок за 7 дней в Garmin не вижу.")
+
+    out.append(
+        "Учитывай это при советах по активности: низкая готовность/плохой сон/высокий стресс → "
+        "лёгкая нагрузка или отдых; хорошее восстановление → можно интенсивнее. "
+        "Если пользователь упоминает тренировку — сверься со списком выше, прежде чем говорить, что её не видишь."
     )
+    return "\n".join(out) + "\n"
 
 
 def _labs_block() -> str:
