@@ -10,6 +10,7 @@ from datetime import date, timedelta
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
 from aiogram import Bot, Dispatcher, F
+from aiogram.exceptions import TelegramNetworkError
 from aiogram.filters import Command, CommandObject
 from aiogram.types import Message
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
@@ -307,15 +308,21 @@ async def main():
     missing = config.check()
     if missing:
         raise SystemExit("Не заполнены поля в .env: " + ", ".join(missing))
-    persistence.restore_on_boot()
+    start_health_server()          # сразу открываем порт для health-check HF
+    persistence.restore_on_boot()  # восстановить базу из бэкапа
     db.init()
-    start_health_server()
     setup_scheduler()
     if not config.OWNER_ID:
         log.warning("OWNER_ID не задан — бот отвечает ВСЕМ. Отправь боту /id, впиши число в .env, перезапусти.")
     log.info("Бот запущен.")
     try:
-        await dp.start_polling(bot)
+        while True:
+            try:
+                await dp.start_polling(bot)
+                break  # штатная остановка
+            except TelegramNetworkError as e:
+                log.warning("Сеть Telegram недоступна (%s) — повтор через 10 с", e)
+                await asyncio.sleep(10)
     finally:
         await asyncio.to_thread(persistence.flush_if_dirty)  # сохранить базу при остановке
 
