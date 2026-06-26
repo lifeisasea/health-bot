@@ -5,9 +5,23 @@
 import asyncio
 import logging
 import os
+import socket
 import threading
 from datetime import date, timedelta
 from http.server import BaseHTTPRequestHandler, HTTPServer
+
+# На некоторых хостингах (в т.ч. HF Spaces) IPv6 «висит» и api.telegram.org
+# становится недоступен. Принудительно используем только IPv4.
+_orig_getaddrinfo = socket.getaddrinfo
+
+
+def _ipv4_only(host, *args, **kwargs):
+    res = _orig_getaddrinfo(host, *args, **kwargs)
+    ipv4 = [r for r in res if r[0] == socket.AF_INET]
+    return ipv4 or res
+
+
+socket.getaddrinfo = _ipv4_only
 
 from aiogram import Bot, Dispatcher, F
 from aiogram.exceptions import TelegramNetworkError
