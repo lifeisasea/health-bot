@@ -9,6 +9,7 @@ DATA_DIR = BASE_DIR / "data"
 DATA_DIR.mkdir(exist_ok=True)
 PHOTOS_DIR = DATA_DIR / "photos"
 PHOTOS_DIR.mkdir(exist_ok=True)
+GARMIN_TOKENS_DIR = DATA_DIR / "garmin_tokens"
 
 load_dotenv(BASE_DIR / ".env")
 

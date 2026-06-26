@@ -58,6 +58,20 @@ def init() -> None:
                 added_at  TEXT
             );
             CREATE INDEX IF NOT EXISTS idx_labs_name_date ON labs(name, date);
+
+            CREATE TABLE IF NOT EXISTS garmin_daily (
+                date               TEXT PRIMARY KEY,
+                steps              INTEGER,
+                resting_hr         INTEGER,
+                stress_avg         INTEGER,
+                body_battery       INTEGER,
+                sleep_hours        REAL,
+                sleep_score        INTEGER,
+                training_readiness INTEGER,
+                vo2max             REAL,
+                hrv                INTEGER,
+                updated_at         TEXT
+            );
             """
         )
 
@@ -249,5 +263,53 @@ def marker_history(name: str) -> list[dict]:
     with _conn() as c:
         rows = c.execute(
             "SELECT * FROM labs WHERE name=? ORDER BY date", (name,)
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+
+# ---------- Garmin ----------
+
+_GARMIN_FIELDS = [
+    "steps", "resting_hr", "stress_avg", "body_battery",
+    "sleep_hours", "sleep_score", "training_readiness", "vo2max", "hrv",
+]
+
+
+def add_garmin_day(d: dict) -> None:
+    """Сохранить/обновить метрики за день (upsert по дате)."""
+    date = (d.get("date") or "").strip()
+    if not date:
+        return
+    cols = ["date"] + _GARMIN_FIELDS + ["updated_at"]
+    vals = [date] + [d.get(f) for f in _GARMIN_FIELDS] + [
+        datetime.now().isoformat(timespec="seconds")
+    ]
+    # COALESCE: новое пустое значение не затирает уже сохранённое
+    upd = ", ".join(f"{f}=COALESCE(excluded.{f}, garmin_daily.{f})" for f in _GARMIN_FIELDS)
+    upd += ", updated_at=excluded.updated_at"
+    with _conn() as c:
+        c.execute(
+            f"INSERT INTO garmin_daily({', '.join(cols)}) "
+            f"VALUES({', '.join('?' * len(cols))}) "
+            f"ON CONFLICT(date) DO UPDATE SET {upd}",
+            vals,
+        )
+    persistence.mark_dirty()
+
+
+def garmin_latest() -> Optional[dict]:
+    with _conn() as c:
+        row = c.execute(
+            "SELECT * FROM garmin_daily WHERE steps IS NOT NULL OR sleep_hours IS NOT NULL "
+            "ORDER BY date DESC LIMIT 1"
+        ).fetchone()
+        return dict(row) if row else None
+
+
+def garmin_range(start_day: str, end_day: str) -> list[dict]:
+    with _conn() as c:
+        rows = c.execute(
+            "SELECT * FROM garmin_daily WHERE date BETWEEN ? AND ? ORDER BY date",
+            (start_day, end_day),
         ).fetchall()
         return [dict(r) for r in rows]

@@ -60,6 +60,43 @@ def restore_on_boot() -> None:
         )
 
 
+def upload(local_path, remote_name: str) -> bool:
+    """Залить произвольный файл в датасет (для токенов Garmin и т.п.)."""
+    if not enabled():
+        return False
+    try:
+        _api().upload_file(
+            path_or_fileobj=str(local_path),
+            path_in_repo=remote_name,
+            repo_id=config.HF_BACKUP_REPO,
+            repo_type="dataset",
+            commit_message=f"upload {remote_name}",
+        )
+        return True
+    except Exception as e:
+        log.warning("Не удалось залить %s: %s", remote_name, e)
+        return False
+
+
+def download(remote_name: str, local_path) -> bool:
+    """Скачать файл из датасета. Вернуть True при успехе."""
+    if not enabled():
+        return False
+    try:
+        from huggingface_hub import hf_hub_download
+
+        path = hf_hub_download(
+            repo_id=config.HF_BACKUP_REPO,
+            filename=remote_name,
+            repo_type="dataset",
+            token=config.HF_TOKEN,
+        )
+        shutil.copy(path, local_path)
+        return True
+    except Exception:
+        return False
+
+
 def mark_dirty() -> None:
     """Отметить, что база изменилась и её нужно выгрузить."""
     global _dirty

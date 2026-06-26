@@ -31,6 +31,7 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
 import config
 import db
+import garmin_client
 import persistence
 import prompts
 import llm
@@ -60,6 +61,7 @@ async def cmd_help(m: Message):
         "Команды:\n"
         "/today — что съедено за день\n"
         "/labs — сводка по анализам\n"
+        "/garmin — свежие данные с часов (сон, пульс, нагрузка)\n"
         "/summary — разбор питания за сегодня сейчас\n"
         "/allergies <текст> — указать аллергии\n"
         "/goal <текст> — изменить цель\n"
@@ -226,6 +228,32 @@ async def on_document(m: Message):
     await m.answer(reply[:4000])
 
 
+@dp.message(Command("garmin"))
+async def cmd_garmin(m: Message):
+    if not garmin_client.available():
+        await m.answer(
+            "Garmin ещё не подключён. Нужно один раз войти локально скриптом "
+            "garmin_login.py — после этого пойдут данные по сну, пульсу и нагрузке."
+        )
+        return
+    g = db.garmin_latest()
+    if not g:
+        await m.answer("Данные Garmin пока не собрались — загляни чуть позже.")
+        return
+    rows = [
+        ("Сон", f"{g['sleep_hours']} ч" + (f" (оценка {g['sleep_score']})" if g.get("sleep_score") else "") if g.get("sleep_hours") else None),
+        ("Готовность к нагрузке", f"{g['training_readiness']}/100" if g.get("training_readiness") is not None else None),
+        ("Body Battery", g.get("body_battery")),
+        ("Пульс покоя", g.get("resting_hr")),
+        ("Стресс (сред.)", g.get("stress_avg")),
+        ("Шаги", g.get("steps")),
+        ("HRV", g.get("hrv")),
+        ("VO2max", g.get("vo2max")),
+    ]
+    body = "\n".join(f"• {k}: {v}" for k, v in rows if v is not None)
+    await m.answer(f"🟢 Garmin на {g['date']}:\n{body}")
+
+
 @dp.message(Command("summary"))
 async def cmd_summary(m: Message):
     await m.answer("Считаю разбор дня…")
@@ -342,6 +370,20 @@ async def send_weekly_summary():
         for s in states
     ) or "особых состояний не было"
 
+    gdays = db.garmin_range(start.isoformat(), end.isoformat())
+    if gdays:
+        def avg(field):
+            xs = [g[field] for g in gdays if g.get(field) is not None]
+            return round(sum(xs) / len(xs), 1) if xs else None
+        garmin_txt = (
+            f"Garmin за неделю (среднее): сон {avg('sleep_hours')} ч, "
+            f"пульс покоя {avg('resting_hr')}, готовность {avg('training_readiness')}/100, "
+            f"стресс {avg('stress_avg')}, шаги {avg('steps')}, "
+            f"body battery {avg('body_battery')}, VO2max {avg('vo2max')}."
+        )
+    else:
+        garmin_txt = "Данных Garmin за неделю нет."
+
     system = (
         prompts.BASE_PERSONA
         + "\n\n"
@@ -349,9 +391,10 @@ async def send_weekly_summary():
         + "\nЗАДАЧА: дай недельную сводку и рекомендации. Питание по дням:\n"
         + ("\n".join(per_day) or "данных по питанию мало")
         + f"\n\nСостояния за неделю:\n{states_txt}\n\n"
-        "Если была болезнь — учти, что спад активности и аппетита это объясняет, не ругай. "
-        "Активность с часов (Garmin) подключим позже — пока опирайся на питание и состояния. "
-        "6–10 строк: выводы + что улучшить на следующую неделю."
+        + garmin_txt
+        + "\n\nЕсли была болезнь — учти, что спад активности и аппетита это объясняет, не ругай. "
+        "Свяжи питание, сон и нагрузку с самочувствием и целью (здоровье + умеренная выносливость). "
+        "6–10 строк: выводы + что улучшить на следующую неделю по еде и по активности."
     )
     text = await chat(system, "Составь недельную сводку.")
     await bot.send_message(config.OWNER_ID, "📊 Итоги недели:\n\n" + text)
@@ -391,8 +434,32 @@ async def keepalive():
             log.warning("keepalive ping не прошёл: %s", e)
 
 
+async def pull_garmin(days: int = 3):
+    """Забрать метрики Garmin за последние дни (фоном, не блокируя бота)."""
+    if not garmin_client.available():
+        garmin_client.restore_tokens()  # вдруг токены уже залиты после входа
+    if not garmin_client.available():
+        return
+
+    def work():
+        c = garmin_client.client()
+        for i in range(days):
+            d = (date.today() - timedelta(days=i)).isoformat()
+            try:
+                db.add_garmin_day(garmin_client.fetch_day(c, d))
+            except Exception as e:
+                log.warning("Garmin %s: %s", d, e)
+
+    try:
+        await asyncio.to_thread(work)
+        log.info("Данные Garmin обновлены.")
+    except Exception as e:
+        log.warning("Не удалось обновить Garmin: %s", e)
+
+
 def setup_scheduler():
     sched = AsyncIOScheduler(timezone=config.TIMEZONE)
+    sched.add_job(pull_garmin, "cron", hour=9, minute=15)  # ежедневный сбор Garmin
     dh, dm = map(int, config.DAILY_SUMMARY_TIME.split(":"))
     sched.add_job(send_daily_summary, "cron", hour=dh, minute=dm)
     wh, wm = map(int, config.WEEKLY_SUMMARY_TIME.split(":"))
@@ -413,10 +480,12 @@ async def main():
     missing = config.check()
     if missing:
         raise SystemExit("Не заполнены поля в .env: " + ", ".join(missing))
-    start_health_server()          # сразу открываем порт для health-check HF
+    start_health_server()          # сразу открываем порт для health-check
     persistence.restore_on_boot()  # восстановить базу из бэкапа
     db.init()
+    garmin_client.restore_tokens()  # подтянуть токены Garmin (если есть)
     setup_scheduler()
+    asyncio.create_task(pull_garmin())  # стартовый сбор Garmin
     if not config.OWNER_ID:
         log.warning("OWNER_ID не задан — бот отвечает ВСЕМ. Отправь боту /id, впиши число в .env, перезапусти.")
     asyncio.create_task(keepalive())

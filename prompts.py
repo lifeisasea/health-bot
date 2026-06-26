@@ -36,7 +36,39 @@ def _context_block() -> str:
         f"ЦЕЛЬ ПОЛЬЗОВАТЕЛЯ: {goal}\n"
         f"АЛЛЕРГИИ (учитывать всегда): {allergies}\n"
         f"АКТИВНЫЕ СОСТОЯНИЯ ЗДОРОВЬЯ:\n{states_txt}\n"
+        f"{_garmin_block()}"
         f"{_labs_block()}"
+    )
+
+
+def _garmin_block() -> str:
+    """Свежие метрики Garmin для советов по активности."""
+    g = db.garmin_latest()
+    if not g:
+        return ""
+    p = []
+    if g.get("sleep_hours"):
+        p.append(f"сон {g['sleep_hours']} ч" + (f" (оценка {g['sleep_score']})" if g.get("sleep_score") else ""))
+    if g.get("training_readiness") is not None:
+        p.append(f"готовность к нагрузке {g['training_readiness']}/100")
+    if g.get("body_battery") is not None:
+        p.append(f"body battery {g['body_battery']}")
+    if g.get("resting_hr"):
+        p.append(f"пульс покоя {g['resting_hr']}")
+    if g.get("stress_avg") is not None:
+        p.append(f"стресс {g['stress_avg']}")
+    if g.get("steps"):
+        p.append(f"шаги {g['steps']}")
+    if g.get("hrv"):
+        p.append(f"HRV {g['hrv']}")
+    if g.get("vo2max"):
+        p.append(f"VO2max {g['vo2max']}")
+    if not p:
+        return ""
+    return (
+        f"ДАННЫЕ GARMIN (на {g['date']}): " + ", ".join(p) + ". "
+        "Учитывай при советах по активности: низкая готовность/плохой сон/высокий стресс → "
+        "лёгкая нагрузка или отдых; хорошее восстановление → можно интенсивнее.\n"
     )
 
 
