@@ -200,14 +200,15 @@ def router_prompt() -> str:
     today = date.today().isoformat()
     totals = db.day_totals(today)
     meals = db.meals_for_day(today)
-    eaten = "; ".join(f"[#{m['id']}] {m['description']}" for m in meals) or "пока ничего не записано"
+    recent = db.recent_meals(2)
+    eaten = "; ".join(f"[#{m['id']} {m['day'][5:]}] {m['description']}" for m in recent) or "пока ничего не записано"
     allergies = db.get_profile("allergies", "не указаны")
     return (
         BASE_PERSONA
         + "\n\n"
         + _context_block()
-        + f"СЕГОДНЯ СЪЕДЕНО: {eaten}. "
-        f"Итого ≈ {totals['calories']} ккал "
+        + f"ПОСЛЕДНИЕ ЗАПИСИ ЕДЫ (формат [#номер дата]; на номер ссылайся при исправлении): {eaten}. "
+        f"Итого за сегодня ≈ {totals['calories']} ккал "
         f"(Б {totals['protein_g']} / Ж {totals['fat_g']} / У {totals['carbs_g']}).\n\n"
         "Пользователь пишет обычным текстом. Ты ОДНОВРЕМЕННО делаешь две вещи:\n"
         "1) отвечаешь по существу (поле reply), опираясь на данные выше;\n"

@@ -1,7 +1,7 @@
 """Хранилище на SQLite: профиль, состояния здоровья, приёмы пищи."""
 import json
 import sqlite3
-from datetime import datetime, date
+from datetime import datetime, date, timedelta
 from typing import Optional
 
 import persistence
@@ -179,18 +179,19 @@ def add_meal(parsed: dict, photo_path: Optional[str] = None) -> int:
 def correct_meal(meal_id, match: str, parsed: dict) -> Optional[str]:
     """Исправить сегодняшнюю запись еды строго по номеру (meal_id) или по слову (match).
     БЕЗ затирания «последней»: если ничего не нашли — вернуть None (бот переспросит).
+    Ищем среди недавних записей (последние 7 дней), а не только сегодня.
     Вернуть старое описание при успехе."""
-    today = date.today().isoformat()
+    floor = (date.today() - timedelta(days=7)).isoformat()
     with _conn() as c:
         row = None
         if meal_id:
             row = c.execute(
-                "SELECT * FROM meals WHERE id=? AND day=?", (meal_id, today)
+                "SELECT * FROM meals WHERE id=? AND day>=?", (meal_id, floor)
             ).fetchone()
         if not row and match:
             row = c.execute(
-                "SELECT * FROM meals WHERE day=? AND description LIKE ? ORDER BY ts DESC LIMIT 1",
-                (today, f"%{match}%"),
+                "SELECT * FROM meals WHERE day>=? AND description LIKE ? ORDER BY ts DESC LIMIT 1",
+                (floor, f"%{match}%"),
             ).fetchone()
         if not row:
             return None
@@ -244,6 +245,32 @@ def repair_20260627() -> None:
                 (bf,),
             )
             changed = True
+        # бургер (id5): маленький слайдер -> обычный бургер
+        burger = ("Обычный бургер на булочке бриошь с говяжьей котлетой без соуса и овощей "
+                  "+ порция картофеля фри + лимонад с клубникой и базиликом (Hard Rock Cafe Dubai)")
+        r = c.execute(
+            "SELECT id FROM meals WHERE id=5 AND day='2026-06-27' AND description LIKE '%Маленький бургер%'"
+        ).fetchone()
+        if r:
+            c.execute(
+                "UPDATE meals SET description=?, calories=1180, protein_g=35, fat_g=54, carbs_g=130 "
+                "WHERE id=5",
+                (burger,),
+            )
+            changed = True
+        # мороженое (id6): убрать взбитые сливки и сироп
+        sundae = ("Шоколадно-ванильный сандей в стакане (шарик ванильного и шарик шоколадного "
+                  "мороженого, без взбитых сливок и сиропа)")
+        r = c.execute(
+            "SELECT id FROM meals WHERE id=6 AND day='2026-06-27' AND description LIKE '%взбитыми сливками%'"
+        ).fetchone()
+        if r:
+            c.execute(
+                "UPDATE meals SET description=?, calories=290, protein_g=5, fat_g=15, carbs_g=33 "
+                "WHERE id=6",
+                (sundae,),
+            )
+            changed = True
     if changed:
         persistence.mark_dirty()
 
@@ -252,6 +279,16 @@ def meals_for_day(day: str) -> list[dict]:
     with _conn() as c:
         rows = c.execute(
             "SELECT * FROM meals WHERE day=? ORDER BY ts", (day,)
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+
+def recent_meals(days: int = 2) -> list[dict]:
+    """Записи еды за последние N дней (для исправлений по номеру)."""
+    floor = (date.today() - timedelta(days=days)).isoformat()
+    with _conn() as c:
+        rows = c.execute(
+            "SELECT * FROM meals WHERE day>=? ORDER BY ts", (floor,)
         ).fetchall()
         return [dict(r) for r in rows]
 
