@@ -331,8 +331,18 @@ def apply_actions(actions: list) -> list[str]:
     return notes
 
 
+_GARMIN_TRIGGERS = (
+    "body battery", "боди бат", "боди бет", "батар", "garmin", "гармин",
+    "с часов", "на часах", "часы", "готовность", "пульс", "сон", "стресс",
+    "hrv", "vo2", "восстанов", "актуальн", "обнови", "сейчас",
+)
+
+
 @dp.message(F.text)
 async def on_text(m: Message):
+    txt = m.text.lower()
+    if garmin_client.available() and any(t in txt for t in _GARMIN_TRIGGERS):
+        await pull_garmin_today()  # свежие данные с часов перед ответом
     data = await chat_json(prompts.router_prompt(), m.text)
     if not data or "reply" not in data:
         # не получили структуру — отвечаем обычным образом
@@ -472,9 +482,40 @@ async def pull_garmin(days: int = 3):
         log.warning("Не удалось обновить Garmin: %s", e)
 
 
+_last_garmin_refresh = 0.0
+
+
+async def pull_garmin_today() -> bool:
+    """Быстро обновить ТОЛЬКО сегодняшние показатели (для свежести по запросу)."""
+    global _last_garmin_refresh
+    if not garmin_client.available():
+        garmin_client.restore_tokens()
+    if not garmin_client.available():
+        return False
+    import time
+    if time.monotonic() - _last_garmin_refresh < 120:
+        return True  # обновляли только что — данные уже свежие
+    _last_garmin_refresh = time.monotonic()
+
+    def work():
+        c = garmin_client.client()
+        today = date.today().isoformat()
+        db.add_garmin_day(garmin_client.fetch_day(c, today))
+        for a in garmin_client.fetch_activities(c, (date.today() - timedelta(days=1)).isoformat(), today):
+            db.add_garmin_activity(a)
+
+    try:
+        await asyncio.to_thread(work)
+        return True
+    except Exception as e:
+        log.warning("Garmin refresh: %s", e)
+        return False
+
+
 def setup_scheduler():
     sched = AsyncIOScheduler(timezone=config.TIMEZONE)
-    sched.add_job(pull_garmin, "cron", hour=9, minute=15)  # ежедневный сбор Garmin
+    sched.add_job(pull_garmin, "cron", hour=9, minute=15)  # утренний полный сбор (3 дня + неделя)
+    sched.add_job(pull_garmin_today, "interval", hours=1)  # ежечасное обновление «на сейчас»
     dh, dm = map(int, config.DAILY_SUMMARY_TIME.split(":"))
     sched.add_job(send_daily_summary, "cron", hour=dh, minute=dm)
     wh, wm = map(int, config.WEEKLY_SUMMARY_TIME.split(":"))
