@@ -176,6 +176,41 @@ def add_meal(parsed: dict, photo_path: Optional[str] = None) -> int:
         return cur.lastrowid
 
 
+def correct_meal_today(match: str, parsed: dict) -> Optional[str]:
+    """Исправить сегодняшнюю запись еды. match — что искать (напр. «помидор»);
+    если не нашли — правим последнюю запись. Вернуть старое описание или None."""
+    today = date.today().isoformat()
+    with _conn() as c:
+        row = None
+        if match:
+            row = c.execute(
+                "SELECT * FROM meals WHERE day=? AND description LIKE ? ORDER BY ts DESC LIMIT 1",
+                (today, f"%{match}%"),
+            ).fetchone()
+        if not row:
+            row = c.execute(
+                "SELECT * FROM meals WHERE day=? ORDER BY ts DESC LIMIT 1", (today,)
+            ).fetchone()
+        if not row:
+            return None
+        old = row["description"]
+        c.execute(
+            "UPDATE meals SET description=?, calories=?, protein_g=?, fat_g=?, carbs_g=?, raw=? "
+            "WHERE id=?",
+            (
+                parsed.get("description", old),
+                parsed.get("calories"),
+                parsed.get("protein_g"),
+                parsed.get("fat_g"),
+                parsed.get("carbs_g"),
+                json.dumps(parsed, ensure_ascii=False),
+                row["id"],
+            ),
+        )
+    persistence.mark_dirty()
+    return old
+
+
 def meals_for_day(day: str) -> list[dict]:
     with _conn() as c:
         rows = c.execute(

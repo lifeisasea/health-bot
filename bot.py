@@ -328,6 +328,16 @@ def apply_actions(actions: list) -> list[str]:
             kind = (a.get("kind") or "").strip()
             if db.end_states(kind):
                 notes.append(f"✅ Состояние закрыто: {_KIND_LABEL.get(kind, kind)}")
+        elif t == "correct_meal":
+            parsed = {
+                k: a.get(k)
+                for k in ("description", "calories", "protein_g", "fat_g", "carbs_g")
+            }
+            old = db.correct_meal_today((a.get("match") or "").strip(), parsed)
+            if old is not None:
+                notes.append(f"✏️ Исправила запись «{old}» → «{parsed.get('description')}»")
+            else:
+                notes.append("Не нашла сегодняшнюю запись еды для исправления.")
     return notes
 
 
