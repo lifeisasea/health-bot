@@ -176,20 +176,21 @@ def add_meal(parsed: dict, photo_path: Optional[str] = None) -> int:
         return cur.lastrowid
 
 
-def correct_meal_today(match: str, parsed: dict) -> Optional[str]:
-    """Исправить сегодняшнюю запись еды. match — что искать (напр. «помидор»);
-    если не нашли — правим последнюю запись. Вернуть старое описание или None."""
+def correct_meal(meal_id, match: str, parsed: dict) -> Optional[str]:
+    """Исправить сегодняшнюю запись еды строго по номеру (meal_id) или по слову (match).
+    БЕЗ затирания «последней»: если ничего не нашли — вернуть None (бот переспросит).
+    Вернуть старое описание при успехе."""
     today = date.today().isoformat()
     with _conn() as c:
         row = None
-        if match:
+        if meal_id:
+            row = c.execute(
+                "SELECT * FROM meals WHERE id=? AND day=?", (meal_id, today)
+            ).fetchone()
+        if not row and match:
             row = c.execute(
                 "SELECT * FROM meals WHERE day=? AND description LIKE ? ORDER BY ts DESC LIMIT 1",
                 (today, f"%{match}%"),
-            ).fetchone()
-        if not row:
-            row = c.execute(
-                "SELECT * FROM meals WHERE day=? ORDER BY ts DESC LIMIT 1", (today,)
             ).fetchone()
         if not row:
             return None
@@ -209,6 +210,42 @@ def correct_meal_today(match: str, parsed: dict) -> Optional[str]:
         )
     persistence.mark_dirty()
     return old
+
+
+def repair_20260627() -> None:
+    """Разовый ремонт: исправление от 27.06 уехало не в ту запись (затёрло ужин).
+    Идемпотентно (срабатывает только при наличии ошибочного состояния)."""
+    bf = "Тост с крем-сыром и лососем + тост с крем-сыром, чёрный чай с 2 ч.л. коричневого сахара"
+    dn = ("Куриная печень тушёная с картофелем фри из аэрогриля, греческим йогуртом 2%, "
+          "хлебом sourdough и ягодным соком 50/50 с водой (3 стакана)")
+    changed = False
+    with _conn() as c:
+        # ужин (id9) был затёрт текстом тоста с лососем — восстановить
+        r = c.execute(
+            "SELECT id FROM meals WHERE id=9 AND day='2026-06-27' "
+            "AND description LIKE '%лосос%' AND description LIKE '%крем-сыр%'"
+        ).fetchone()
+        if r:
+            c.execute(
+                "UPDATE meals SET description=?, calories=1050, protein_g=55, fat_g=40, carbs_g=120 "
+                "WHERE id=9",
+                (dn,),
+            )
+            changed = True
+        # завтрак (id4): помидоры -> лосось
+        r = c.execute(
+            "SELECT id FROM meals WHERE id=4 AND day='2026-06-27' "
+            "AND description LIKE '%помидор%'"
+        ).fetchone()
+        if r:
+            c.execute(
+                "UPDATE meals SET description=?, calories=435, protein_g=17, fat_g=23, carbs_g=43 "
+                "WHERE id=4",
+                (bf,),
+            )
+            changed = True
+    if changed:
+        persistence.mark_dirty()
 
 
 def meals_for_day(day: str) -> list[dict]:

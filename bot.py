@@ -333,11 +333,14 @@ def apply_actions(actions: list) -> list[str]:
                 k: a.get(k)
                 for k in ("description", "calories", "protein_g", "fat_g", "carbs_g")
             }
-            old = db.correct_meal_today((a.get("match") or "").strip(), parsed)
+            old = db.correct_meal(a.get("meal_id"), (a.get("match") or "").strip(), parsed)
             if old is not None:
-                notes.append(f"✏️ Исправила запись «{old}» → «{parsed.get('description')}»")
+                notes.append(f"✏️ Исправила «{old}» → «{parsed.get('description')}»")
             else:
-                notes.append("Не нашла сегодняшнюю запись еды для исправления.")
+                from datetime import date as _d
+                today_meals = db.meals_for_day(_d.today().isoformat())
+                lst = "\n".join(f"#{mm['id']}: {mm['description'][:60]}" for mm in today_meals) or "—"
+                notes.append("⚠️ Не поняла, какую запись исправить. Уточни номер. Сегодня записано:\n" + lst)
     return notes
 
 
@@ -549,6 +552,7 @@ async def main():
     start_health_server()          # сразу открываем порт для health-check
     persistence.restore_on_boot()  # восстановить базу из бэкапа
     db.init()
+    db.repair_20260627()  # разовый ремонт ошибочного исправления еды
     garmin_client.restore_tokens()  # подтянуть токены Garmin (если есть)
     setup_scheduler()
     asyncio.create_task(pull_garmin())  # стартовый сбор Garmin
