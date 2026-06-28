@@ -371,11 +371,14 @@ async def on_text(m: Message):
 # ---------------- сводки по расписанию ----------------
 
 async def send_daily_summary():
-    today = config.today_local().isoformat()
-    if not db.meals_for_day(today):
+    # Если сводка приходит ночью/рано утром — разбираем ВЧЕРАШНИЙ (завершённый) день.
+    now = config.now_local()
+    target = config.today_local() if now.hour >= 6 else (config.today_local() - timedelta(days=1))
+    day = target.isoformat()
+    if not db.meals_for_day(day):
         return  # нечего разбирать
-    text = await chat(prompts.daily_summary_prompt(), "Сделай разбор питания за сегодня.")
-    await bot.send_message(config.OWNER_ID, "🌙 Разбор дня:\n\n" + text)
+    text = await chat(prompts.daily_summary_prompt(day), f"Сделай разбор питания за {day}.")
+    await bot.send_message(config.OWNER_ID, f"🌙 Разбор дня ({day}):\n\n" + text)
 
 
 async def send_weekly_summary():

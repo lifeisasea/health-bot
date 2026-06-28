@@ -238,8 +238,8 @@ def router_prompt() -> str:
     )
 
 
-def daily_summary_prompt() -> str:
-    today = config.today_local().isoformat()
+def daily_summary_prompt(day: str = None) -> str:
+    today = day or config.today_local().isoformat()
     totals = db.day_totals(today)
     meals = db.meals_for_day(today)
     listing = "\n".join(
