@@ -38,12 +38,25 @@ def available() -> bool:
     return tokens_present()
 
 
-def client():
-    import garminconnect
+_client_cache = None
 
-    g = garminconnect.Garmin()
-    g.login(str(TOKDIR))
-    return g
+
+def client():
+    """Одна сессия на весь процесс — НЕ логинимся каждый раз (иначе Garmin даёт 429).
+    garth внутри сам обновляет токен по мере необходимости (~раз в час)."""
+    global _client_cache
+    if _client_cache is None:
+        import garminconnect
+
+        g = garminconnect.Garmin()
+        g.login(str(TOKDIR))
+        _client_cache = g
+    return _client_cache
+
+
+def reset_client():
+    global _client_cache
+    _client_cache = None
 
 
 def _num(*vals):

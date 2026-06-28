@@ -346,8 +346,8 @@ def apply_actions(actions: list) -> list[str]:
 
 _GARMIN_TRIGGERS = (
     "body battery", "боди бат", "боди бет", "батар", "garmin", "гармин",
-    "с часов", "на часах", "часы", "готовность", "пульс", "сон", "стресс",
-    "hrv", "vo2", "восстанов", "актуальн", "обнови", "сейчас",
+    "с часов", "на часах", "готовность", "vo2", "восстанов",
+    "обнови", "актуальн", "свеж",
 )
 
 
@@ -506,8 +506,8 @@ async def pull_garmin_today() -> bool:
     if not garmin_client.available():
         return False
     import time
-    if time.monotonic() - _last_garmin_refresh < 120:
-        return True  # обновляли только что — данные уже свежие
+    if time.monotonic() - _last_garmin_refresh < 300:
+        return True  # обновляли недавно — данные уже свежие
     _last_garmin_refresh = time.monotonic()
 
     def work():
