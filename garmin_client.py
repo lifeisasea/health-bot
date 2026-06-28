@@ -39,19 +39,32 @@ def available() -> bool:
 
 
 _client_cache = None
+_cooldown_until = 0.0  # monotonic-время, до которого не дёргаем Garmin (после 429)
 
 
 def client():
     """Одна сессия на весь процесс — НЕ логинимся каждый раз (иначе Garmin даёт 429).
-    garth внутри сам обновляет токен по мере необходимости (~раз в час)."""
-    global _client_cache
-    if _client_cache is None:
+    garth внутри сам обновляет токен по мере необходимости (~раз в час).
+    После 429 уходим в «тишину» на час, чтобы лимит Garmin успел сброситься."""
+    global _client_cache, _cooldown_until
+    import time
+
+    if _client_cache is not None:
+        return _client_cache
+    if time.monotonic() < _cooldown_until:
+        raise RuntimeError("Garmin на паузе после 429 — ждём сброса лимита")
+    try:
         import garminconnect
 
         g = garminconnect.Garmin()
         g.login(str(TOKDIR))
         _client_cache = g
-    return _client_cache
+        return g
+    except Exception as e:
+        if "429" in str(e) or "Too Many Requests" in str(e):
+            _cooldown_until = time.monotonic() + 3600  # час тишины
+            log.warning("Garmin 429 — пауза на час, чтобы лимит сбросился")
+        raise
 
 
 def reset_client():
