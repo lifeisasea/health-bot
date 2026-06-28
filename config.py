@@ -34,6 +34,24 @@ WEEKLY_SUMMARY_TIME = os.getenv("WEEKLY_SUMMARY_TIME", "10:00").strip()
 
 DB_PATH = DATA_DIR / "health.db"
 
+# Локальные дата/время по часовому поясу пользователя (а не UTC сервера).
+from datetime import datetime as _dt  # noqa: E402
+
+try:
+    from zoneinfo import ZoneInfo
+
+    _TZ = ZoneInfo(TIMEZONE)
+except Exception:  # на случай отсутствия tzdata
+    _TZ = None
+
+
+def now_local():
+    return _dt.now(_TZ) if _TZ else _dt.now()
+
+
+def today_local():
+    return now_local().date()
+
 
 def check() -> list[str]:
     """Вернуть список незаполненных полей, без которых бот не запустится.

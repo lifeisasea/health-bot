@@ -143,7 +143,7 @@ async def cmd_state(m: Message):
 
 @dp.message(Command("today"))
 async def cmd_today(m: Message):
-    today = date.today().isoformat()
+    today = config.today_local().isoformat()
     meals = db.meals_for_day(today)
     if not meals:
         await m.answer("Сегодня пока ничего не записано. Пришли фото еды 📷")
@@ -371,7 +371,7 @@ async def on_text(m: Message):
 # ---------------- сводки по расписанию ----------------
 
 async def send_daily_summary():
-    today = date.today().isoformat()
+    today = config.today_local().isoformat()
     if not db.meals_for_day(today):
         return  # нечего разбирать
     text = await chat(prompts.daily_summary_prompt(), "Сделай разбор питания за сегодня.")
@@ -379,7 +379,7 @@ async def send_daily_summary():
 
 
 async def send_weekly_summary():
-    end = date.today()
+    end = config.today_local()
     start = end - timedelta(days=6)
     days = [(start + timedelta(days=i)).isoformat() for i in range(7)]
     per_day = []
@@ -478,14 +478,14 @@ async def pull_garmin(days: int = 3):
     def work():
         c = garmin_client.client()
         for i in range(days):
-            d = (date.today() - timedelta(days=i)).isoformat()
+            d = (config.today_local() - timedelta(days=i)).isoformat()
             try:
                 db.add_garmin_day(garmin_client.fetch_day(c, d))
             except Exception as e:
                 log.warning("Garmin %s: %s", d, e)
         # тренировки за последнюю неделю (заплывы, бег и т.п.)
-        start = (date.today() - timedelta(days=max(days, 7))).isoformat()
-        for a in garmin_client.fetch_activities(c, start, date.today().isoformat()):
+        start = (config.today_local() - timedelta(days=max(days, 7))).isoformat()
+        for a in garmin_client.fetch_activities(c, start, config.today_local().isoformat()):
             db.add_garmin_activity(a)
 
     try:
@@ -512,9 +512,13 @@ async def pull_garmin_today() -> bool:
 
     def work():
         c = garmin_client.client()
-        today = date.today().isoformat()
-        db.add_garmin_day(garmin_client.fetch_day(c, today))
-        for a in garmin_client.fetch_activities(c, (date.today() - timedelta(days=1)).isoformat(), today):
+        today = config.today_local()
+        # добираем окно последних 3 дней — чтобы не терять поздно синхронизированные
+        # данные и активности (например, тренировку, залитую с часов позже)
+        for i in range(3):
+            db.add_garmin_day(garmin_client.fetch_day(c, (today - timedelta(days=i)).isoformat()))
+        start = (today - timedelta(days=3)).isoformat()
+        for a in garmin_client.fetch_activities(c, start, today.isoformat()):
             db.add_garmin_activity(a)
 
     try:

@@ -1,6 +1,7 @@
 """Сборка системных подсказок (промптов) с учётом профиля и состояний."""
 from datetime import date
 
+import config
 import db
 
 GOAL_DEFAULT = "Поддержание здоровья и умеренной выносливости."
@@ -33,6 +34,9 @@ def _context_block() -> str:
         states_txt = "нет активных особых состояний"
 
     return (
+        f"СЕГОДНЯШНЯЯ ДАТА: {config.today_local().isoformat()} "
+        "(данные Garmin могут быть от более раннего дня — это не «сегодня», "
+        "ориентируйся на дату рядом с показателем).\n"
         f"ЦЕЛЬ ПОЛЬЗОВАТЕЛЯ: {goal}\n"
         f"АЛЛЕРГИИ (учитывать всегда): {allergies}\n"
         f"АКТИВНЫЕ СОСТОЯНИЯ ЗДОРОВЬЯ:\n{states_txt}\n"
@@ -47,8 +51,8 @@ def _garmin_block() -> str:
     from datetime import date, timedelta
 
     g = db.garmin_latest()
-    week = db.garmin_range((date.today() - timedelta(days=7)).isoformat(), date.today().isoformat())
-    acts = db.garmin_activities_range((date.today() - timedelta(days=7)).isoformat(), date.today().isoformat())
+    week = db.garmin_range((config.today_local() - timedelta(days=7)).isoformat(), config.today_local().isoformat())
+    acts = db.garmin_activities_range((config.today_local() - timedelta(days=7)).isoformat(), config.today_local().isoformat())
     if not g and not week and not acts:
         return ""
 
@@ -175,7 +179,7 @@ def lab_extraction_prompt() -> str:
 
 def qa_prompt() -> str:
     """Для ответов на вопросы пользователя (что съесть, чем заняться и т.п.)."""
-    today = date.today().isoformat()
+    today = config.today_local().isoformat()
     totals = db.day_totals(today)
     meals = db.meals_for_day(today)
     eaten = "; ".join(m["description"] for m in meals) or "пока ничего не записано"
@@ -197,7 +201,7 @@ def qa_prompt() -> str:
 
 def router_prompt() -> str:
     """Понимание свободной речи: ответить И при необходимости обновить профиль."""
-    today = date.today().isoformat()
+    today = config.today_local().isoformat()
     totals = db.day_totals(today)
     meals = db.meals_for_day(today)
     recent = db.recent_meals(2)
@@ -235,7 +239,7 @@ def router_prompt() -> str:
 
 
 def daily_summary_prompt() -> str:
-    today = date.today().isoformat()
+    today = config.today_local().isoformat()
     totals = db.day_totals(today)
     meals = db.meals_for_day(today)
     listing = "\n".join(

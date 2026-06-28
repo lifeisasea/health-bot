@@ -5,7 +5,7 @@ from datetime import datetime, date, timedelta
 from typing import Optional
 
 import persistence
-from config import DB_PATH
+from config import DB_PATH, today_local, now_local
 
 
 def _conn() -> sqlite3.Connection:
@@ -109,7 +109,7 @@ def get_profile(key: str, default: str = "") -> str:
 # ---------- состояния здоровья ----------
 
 def add_state(kind: str, description: str, started_at: Optional[str] = None) -> int:
-    started_at = started_at or date.today().isoformat()
+    started_at = started_at or today_local().isoformat()
     with _conn() as c:
         cur = c.execute(
             "INSERT INTO health_states(kind, description, started_at, ended_at) "
@@ -122,7 +122,7 @@ def add_state(kind: str, description: str, started_at: Optional[str] = None) -> 
 
 def end_states(kind: str, ended_at: Optional[str] = None) -> int:
     """Закрыть все активные состояния данного типа. Вернуть число закрытых."""
-    ended_at = ended_at or date.today().isoformat()
+    ended_at = ended_at or today_local().isoformat()
     with _conn() as c:
         cur = c.execute(
             "UPDATE health_states SET ended_at=? WHERE kind=? AND ended_at IS NULL",
@@ -155,7 +155,7 @@ def states_in_period(start_day: str, end_day: str) -> list[dict]:
 # ---------- приёмы пищи ----------
 
 def add_meal(parsed: dict, photo_path: Optional[str] = None) -> int:
-    now = datetime.now()
+    now = now_local()
     with _conn() as c:
         cur = c.execute(
             "INSERT INTO meals(ts, day, description, calories, protein_g, fat_g, "
@@ -181,7 +181,7 @@ def correct_meal(meal_id, match: str, parsed: dict) -> Optional[str]:
     БЕЗ затирания «последней»: если ничего не нашли — вернуть None (бот переспросит).
     Ищем среди недавних записей (последние 7 дней), а не только сегодня.
     Вернуть старое описание при успехе."""
-    floor = (date.today() - timedelta(days=7)).isoformat()
+    floor = (today_local() - timedelta(days=7)).isoformat()
     with _conn() as c:
         row = None
         if meal_id:
@@ -285,7 +285,7 @@ def meals_for_day(day: str) -> list[dict]:
 
 def recent_meals(days: int = 2) -> list[dict]:
     """Записи еды за последние N дней (для исправлений по номеру)."""
-    floor = (date.today() - timedelta(days=days)).isoformat()
+    floor = (today_local() - timedelta(days=days)).isoformat()
     with _conn() as c:
         rows = c.execute(
             "SELECT * FROM meals WHERE day>=? ORDER BY ts", (floor,)
@@ -334,7 +334,7 @@ def add_lab(row: dict, source: str = "telegram", dedup: bool = True) -> bool:
                 (row.get("reference") or "").strip(),
                 (row.get("flag") or "").strip(),
                 source,
-                datetime.now().isoformat(timespec="seconds"),
+                now_local().isoformat(timespec="seconds"),
             ),
         )
     persistence.mark_dirty()
@@ -403,7 +403,7 @@ def add_garmin_day(d: dict) -> None:
         return
     cols = ["date"] + _GARMIN_FIELDS + ["updated_at"]
     vals = [date] + [d.get(f) for f in _GARMIN_FIELDS] + [
-        datetime.now().isoformat(timespec="seconds")
+        now_local().isoformat(timespec="seconds")
     ]
     # COALESCE: новое пустое значение не затирает уже сохранённое
     upd = ", ".join(f"{f}=COALESCE(excluded.{f}, garmin_daily.{f})" for f in _GARMIN_FIELDS)
@@ -452,7 +452,7 @@ def add_garmin_activity(a: dict) -> None:
                 a.get("duration_min"),
                 a.get("distance_km"),
                 a.get("calories"),
-                datetime.now().isoformat(timespec="seconds"),
+                now_local().isoformat(timespec="seconds"),
             ),
         )
     persistence.mark_dirty()
