@@ -382,7 +382,7 @@ async def send_daily_summary():
 
 
 async def send_weekly_summary():
-    end = config.today_local()
+    end = config.today_local() - timedelta(days=1)  # по вчера включительно (завершённая неделя)
     start = end - timedelta(days=6)
     days = [(start + timedelta(days=i)).isoformat() for i in range(7)]
     per_day = []
