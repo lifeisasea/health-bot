@@ -39,31 +39,72 @@ def available() -> bool:
 
 
 _client_cache = None
-_cooldown_until = 0.0  # monotonic-время, до которого не дёргаем Garmin (после 429)
+_COOLDOWN_KEY = "garmin_cooldown_until"  # ISO-время в profile (переживает перезапуски)
+
+
+def _cooldown_active() -> bool:
+    import db
+
+    until = db.get_profile(_COOLDOWN_KEY, "")
+    if not until:
+        return False
+    try:
+        from datetime import datetime, timezone
+
+        return datetime.now(timezone.utc) < datetime.fromisoformat(until)
+    except ValueError:
+        return False
 
 
 def client():
     """Одна сессия на весь процесс — НЕ логинимся каждый раз (иначе Garmin даёт 429).
-    garth внутри сам обновляет токен по мере необходимости (~раз в час).
-    После 429 уходим в «тишину» на час, чтобы лимит Garmin успел сброситься."""
-    global _client_cache, _cooldown_until
-    import time
+    garth внутри сам обновляет токен по мере необходимости.
+    После 429 уходим в «тишину» на час; пауза хранится в БД, поэтому перезапуск
+    сервера её не сбрасывает (иначе можно случайно растревожить лимит Garmin)."""
+    global _client_cache
+    import db
 
     if _client_cache is not None:
         return _client_cache
-    if time.monotonic() < _cooldown_until:
+    if _cooldown_active():
         raise RuntimeError("Garmin на паузе после 429 — ждём сброса лимита")
+
+    had_cooldown = bool(db.get_profile(_COOLDOWN_KEY, ""))
     try:
         import garminconnect
 
         g = garminconnect.Garmin()
         g.login(str(TOKDIR))
         _client_cache = g
+        if had_cooldown:  # были в паузе и снова получилось — снять и сообщить
+            db.set_profile(_COOLDOWN_KEY, "")
+            try:
+                import alerts
+
+                alerts.notify("garmin_ok", "✅ Garmin снова на связи — данные с часов обновляются.")
+            except Exception:
+                pass
         return g
     except Exception as e:
         if "429" in str(e) or "Too Many Requests" in str(e):
-            _cooldown_until = time.monotonic() + 3600  # час тишины
-            log.warning("Garmin 429 — пауза на час, чтобы лимит сбросился")
+            from datetime import datetime, timedelta, timezone
+
+            db.set_profile(
+                _COOLDOWN_KEY,
+                (datetime.now(timezone.utc) + timedelta(hours=1)).isoformat(),
+            )
+            log.warning("Garmin 429 — пауза на час (сохранена в БД)")
+            try:
+                import alerts
+
+                alerts.notify(
+                    "garmin_429",
+                    "⚠️ Garmin временно ограничил доступ (лимит запросов). Данные с часов "
+                    "пока не обновляются — обычно проходит само за час-два. Если надолго — "
+                    "напиши, освежим вход.",
+                )
+            except Exception:
+                pass
         raise
 
 

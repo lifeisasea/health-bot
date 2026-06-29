@@ -120,3 +120,13 @@ def flush_if_dirty() -> None:
         log.info("База выгружена в бэкап HF.")
     except Exception as e:
         log.warning("Не удалось выгрузить бэкап: %s", e)
+        try:
+            import alerts
+
+            alerts.notify(
+                "backup",
+                "⚠️ Не удалось сохранить твои данные в облако (бэкап). Я продолжаю работать, "
+                "но если это повторяется — скажи, разберёмся.",
+            )
+        except Exception:
+            pass
