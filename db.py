@@ -23,6 +23,12 @@ def init() -> None:
                 value TEXT
             );
 
+            CREATE TABLE IF NOT EXISTS notes (
+                id         INTEGER PRIMARY KEY AUTOINCREMENT,
+                text       TEXT,
+                created_at TEXT
+            );
+
             CREATE TABLE IF NOT EXISTS health_states (
                 id          INTEGER PRIMARY KEY AUTOINCREMENT,
                 kind        TEXT,            -- illness | ivf | injury | other
@@ -104,6 +110,40 @@ def get_profile(key: str, default: str = "") -> str:
     with _conn() as c:
         row = c.execute("SELECT value FROM profile WHERE key=?", (key,)).fetchone()
         return row["value"] if row else default
+
+
+# ---------- заметки (произвольные факты/привычки) ----------
+
+def add_note(text: str) -> bool:
+    text = (text or "").strip()
+    if not text:
+        return False
+    with _conn() as c:
+        if c.execute("SELECT 1 FROM notes WHERE lower(text)=lower(?)", (text,)).fetchone():
+            return False  # уже есть такая заметка
+        c.execute(
+            "INSERT INTO notes(text, created_at) VALUES(?, ?)",
+            (text, now_local().isoformat(timespec="seconds")),
+        )
+    persistence.mark_dirty()
+    return True
+
+
+def list_notes() -> list[dict]:
+    with _conn() as c:
+        return [dict(r) for r in c.execute("SELECT * FROM notes ORDER BY id")]
+
+
+def remove_note(match: str) -> int:
+    match = (match or "").strip()
+    if not match:
+        return 0
+    with _conn() as c:
+        cur = c.execute("DELETE FROM notes WHERE text LIKE ?", (f"%{match}%",))
+        n = cur.rowcount
+    if n:
+        persistence.mark_dirty()
+    return n
 
 
 # ---------- состояния здоровья ----------

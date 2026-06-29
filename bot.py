@@ -62,6 +62,7 @@ async def cmd_help(m: Message):
         "/today — что съедено за день\n"
         "/labs — сводка по анализам\n"
         "/garmin — свежие данные с часов (сон, пульс, нагрузка)\n"
+        "/notes — что я о тебе помню (привычки, предпочтения)\n"
         "/summary — разбор питания за сегодня сейчас\n"
         "/allergies <текст> — указать аллергии\n"
         "/goal <текст> — изменить цель\n"
@@ -129,6 +130,16 @@ async def cmd_injury(m: Message, command: CommandObject):
     note = (command.args or "травма").strip()
     db.add_state("injury", note)
     await m.answer(f"Отметила травму: {note}. Учту в советах по активности.")
+
+
+@dp.message(Command("notes"))
+async def cmd_notes(m: Message):
+    notes = db.list_notes()
+    if not notes:
+        await m.answer("Заметок пока нет. Скажи «запомни, что…» — и я учту это в советах.")
+        return
+    lines = "\n".join(f"• {n['text']}" for n in notes)
+    await m.answer("📌 Я помню о тебе:\n" + lines)
 
 
 @dp.message(Command("state"))
@@ -328,6 +339,13 @@ def apply_actions(actions: list) -> list[str]:
             kind = (a.get("kind") or "").strip()
             if db.end_states(kind):
                 notes.append(f"✅ Состояние закрыто: {_KIND_LABEL.get(kind, kind)}")
+        elif t == "add_note":
+            txt = (a.get("text") or "").strip()
+            if txt and db.add_note(txt):
+                notes.append(f"📌 Запомнила: {txt}")
+        elif t == "remove_note":
+            if db.remove_note((a.get("match") or "").strip()):
+                notes.append("🗑 Заметку убрала.")
         elif t == "correct_meal":
             parsed = {
                 k: a.get(k)
