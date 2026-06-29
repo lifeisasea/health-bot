@@ -7,6 +7,7 @@ import logging
 import os
 import socket
 import threading
+from collections import deque
 from datetime import date, timedelta
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
@@ -346,6 +347,19 @@ def apply_actions(actions: list) -> list[str]:
         elif t == "remove_note":
             if db.remove_note((a.get("match") or "").strip()):
                 notes.append("🗑 Заметку убрала.")
+        elif t == "add_meal":
+            parsed = {
+                k: a.get(k)
+                for k in ("description", "calories", "protein_g", "fat_g", "carbs_g")
+            }
+            if (parsed.get("description") or "").strip():
+                db.add_meal(parsed)
+                notes.append(
+                    f"🍽 Записала: {parsed['description']} (~{round(parsed.get('calories') or 0)} ккал)"
+                )
+        elif t == "delete_meal":
+            old = db.delete_meal(a.get("meal_id"), (a.get("match") or "").strip())
+            notes.append(f"🗑 Удалила запись: {old}" if old else "Не нашла запись для удаления.")
         elif t == "correct_meal":
             parsed = {
                 k: a.get(k)
@@ -355,8 +369,7 @@ def apply_actions(actions: list) -> list[str]:
             if old is not None:
                 notes.append(f"✏️ Исправила «{old}» → «{parsed.get('description')}»")
             else:
-                from datetime import date as _d
-                today_meals = db.meals_for_day(_d.today().isoformat())
+                today_meals = db.meals_for_day(config.today_local().isoformat())
                 lst = "\n".join(f"#{mm['id']}: {mm['description'][:60]}" for mm in today_meals) or "—"
                 notes.append("⚠️ Не поняла, какую запись исправить. Уточни номер. Сегодня записано:\n" + lst)
     return notes
@@ -369,18 +382,40 @@ _GARMIN_TRIGGERS = (
 )
 
 
+_history = deque(maxlen=10)  # последние реплики (роль, текст) — память диалога
+
+
+def _with_history(text: str) -> str:
+    if not _history:
+        return "СООБЩЕНИЕ ПОЛЬЗОВАТЕЛЯ: " + text
+    convo = "\n".join(
+        f"{'Пользователь' if r == 'user' else 'Ты (бот)'}: {t}" for r, t in _history
+    )
+    return (
+        "НЕДАВНЯЯ ПЕРЕПИСКА (ссылки «это», «тот же», «он» относятся сюда; "
+        "не переспрашивай то, что уже понятно из контекста):\n"
+        f"{convo}\n\nНОВОЕ СООБЩЕНИЕ ПОЛЬЗОВАТЕЛЯ: {text}"
+    )
+
+
 @dp.message(F.text)
 async def on_text(m: Message):
     txt = m.text.lower()
     if garmin_client.available() and any(t in txt for t in _GARMIN_TRIGGERS):
         await pull_garmin_today()  # свежие данные с часов перед ответом
-    data = await chat_json(prompts.router_prompt(), m.text)
+    user_content = _with_history(m.text)
+    data = await chat_json(prompts.router_prompt(), user_content)
     if not data or "reply" not in data:
         # не получили структуру — отвечаем обычным образом
-        await m.answer(await chat(prompts.qa_prompt(), m.text))
+        reply = await chat(prompts.qa_prompt(), user_content)
+        await m.answer(reply)
+        _history.append(("user", m.text))
+        _history.append(("bot", reply[:300]))
         return
     notes = apply_actions(data.get("actions"))
     reply = (data.get("reply") or "Готово.").strip()
+    _history.append(("user", m.text))
+    _history.append(("bot", reply[:300]))
     if notes:
         reply += "\n\n" + "\n".join(notes)
     await m.answer(reply)

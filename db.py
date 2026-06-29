@@ -323,6 +323,26 @@ def meals_for_day(day: str) -> list[dict]:
         return [dict(r) for r in rows]
 
 
+def delete_meal(meal_id, match: str = "") -> Optional[str]:
+    """Удалить недавнюю (≤7 дней) запись еды по номеру или слову. Вернуть описание удалённой."""
+    floor = (today_local() - timedelta(days=7)).isoformat()
+    with _conn() as c:
+        row = None
+        if meal_id:
+            row = c.execute("SELECT * FROM meals WHERE id=? AND day>=?", (meal_id, floor)).fetchone()
+        if not row and match:
+            row = c.execute(
+                "SELECT * FROM meals WHERE day>=? AND description LIKE ? ORDER BY ts DESC LIMIT 1",
+                (floor, f"%{match}%"),
+            ).fetchone()
+        if not row:
+            return None
+        desc = row["description"]
+        c.execute("DELETE FROM meals WHERE id=?", (row["id"],))
+    persistence.mark_dirty()
+    return desc
+
+
 def recent_meals(days: int = 2) -> list[dict]:
     """Записи еды за последние N дней (для исправлений по номеру)."""
     floor = (today_local() - timedelta(days=days)).isoformat()
