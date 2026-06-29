@@ -490,6 +490,7 @@ async def pull_garmin(days: int = 3):
         start = (config.today_local() - timedelta(days=max(days, 7))).isoformat()
         for a in garmin_client.fetch_activities(c, start, config.today_local().isoformat()):
             db.add_garmin_activity(a)
+        garmin_client.persist_tokens()  # сохранить обновлённый токен в датасет
 
     try:
         await asyncio.to_thread(work)
@@ -523,6 +524,7 @@ async def pull_garmin_today() -> bool:
         start = (today - timedelta(days=3)).isoformat()
         for a in garmin_client.fetch_activities(c, start, today.isoformat()):
             db.add_garmin_activity(a)
+        garmin_client.persist_tokens()  # сохранить обновлённый токен в датасет
 
     try:
         await asyncio.to_thread(work)

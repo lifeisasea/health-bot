@@ -72,6 +72,25 @@ def reset_client():
     _client_cache = None
 
 
+def persist_tokens():
+    """Сохранить (возможно обновлённые) токены ИЗ СЕССИИ garminconnect и выгрузить в
+    датасет, чтобы новый контейнер использовал свежий токен без обращения к oauth-сервису.
+    ВАЖНО: пустые файлы НЕ выгружаем (иначе затрём рабочие токены)."""
+    if _client_cache is None:
+        return
+    try:
+        _client_cache.garth.dump(str(TOKDIR))  # токены именно этой сессии
+    except Exception as e:
+        log.warning("garth dump: %s", e)
+        return
+    for f in _TOKEN_FILES:
+        path = TOKDIR / f
+        if path.exists() and path.stat().st_size > 0:
+            persistence.upload(path, f"garmin/{f}")
+        else:
+            log.warning("Пропуск выгрузки пустого токена %s", f)
+
+
 def _num(*vals):
     for v in vals:
         if isinstance(v, (int, float)):
