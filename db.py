@@ -253,68 +253,6 @@ def correct_meal(meal_id, match: str, parsed: dict) -> Optional[str]:
     return old
 
 
-def repair_20260627() -> None:
-    """Разовый ремонт: исправление от 27.06 уехало не в ту запись (затёрло ужин).
-    Идемпотентно (срабатывает только при наличии ошибочного состояния)."""
-    bf = "Тост с крем-сыром и лососем + тост с крем-сыром, чёрный чай с 2 ч.л. коричневого сахара"
-    dn = ("Куриная печень тушёная с картофелем фри из аэрогриля, греческим йогуртом 2%, "
-          "хлебом sourdough и ягодным соком 50/50 с водой (3 стакана)")
-    changed = False
-    with _conn() as c:
-        # ужин (id9) был затёрт текстом тоста с лососем — восстановить
-        r = c.execute(
-            "SELECT id FROM meals WHERE id=9 AND day='2026-06-27' "
-            "AND description LIKE '%лосос%' AND description LIKE '%крем-сыр%'"
-        ).fetchone()
-        if r:
-            c.execute(
-                "UPDATE meals SET description=?, calories=1050, protein_g=55, fat_g=40, carbs_g=120 "
-                "WHERE id=9",
-                (dn,),
-            )
-            changed = True
-        # завтрак (id4): помидоры -> лосось
-        r = c.execute(
-            "SELECT id FROM meals WHERE id=4 AND day='2026-06-27' "
-            "AND description LIKE '%помидор%'"
-        ).fetchone()
-        if r:
-            c.execute(
-                "UPDATE meals SET description=?, calories=435, protein_g=17, fat_g=23, carbs_g=43 "
-                "WHERE id=4",
-                (bf,),
-            )
-            changed = True
-        # бургер (id5): маленький слайдер -> обычный бургер
-        burger = ("Обычный бургер на булочке бриошь с говяжьей котлетой без соуса и овощей "
-                  "+ порция картофеля фри + лимонад с клубникой и базиликом (Hard Rock Cafe Dubai)")
-        r = c.execute(
-            "SELECT id FROM meals WHERE id=5 AND day='2026-06-27' AND description LIKE '%Маленький бургер%'"
-        ).fetchone()
-        if r:
-            c.execute(
-                "UPDATE meals SET description=?, calories=1180, protein_g=35, fat_g=54, carbs_g=130 "
-                "WHERE id=5",
-                (burger,),
-            )
-            changed = True
-        # мороженое (id6): убрать взбитые сливки и сироп
-        sundae = ("Шоколадно-ванильный сандей в стакане (шарик ванильного и шарик шоколадного "
-                  "мороженого, без взбитых сливок и сиропа)")
-        r = c.execute(
-            "SELECT id FROM meals WHERE id=6 AND day='2026-06-27' AND description LIKE '%взбитыми сливками%'"
-        ).fetchone()
-        if r:
-            c.execute(
-                "UPDATE meals SET description=?, calories=290, protein_g=5, fat_g=15, carbs_g=33 "
-                "WHERE id=6",
-                (sundae,),
-            )
-            changed = True
-    if changed:
-        persistence.mark_dirty()
-
-
 def meals_for_day(day: str) -> list[dict]:
     with _conn() as c:
         rows = c.execute(

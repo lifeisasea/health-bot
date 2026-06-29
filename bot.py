@@ -614,7 +614,6 @@ async def main():
     start_health_server()          # сразу открываем порт для health-check
     persistence.restore_on_boot()  # восстановить базу из бэкапа
     db.init()
-    db.repair_20260627()  # разовый ремонт ошибочного исправления еды
     garmin_client.restore_tokens()  # подтянуть токены Garmin (если есть)
     setup_scheduler()
     asyncio.create_task(pull_garmin())  # стартовый сбор Garmin

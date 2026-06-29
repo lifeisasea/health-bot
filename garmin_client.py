@@ -108,11 +108,6 @@ def client():
         raise
 
 
-def reset_client():
-    global _client_cache
-    _client_cache = None
-
-
 def persist_tokens():
     """Сохранить (возможно обновлённые) токены ИЗ СЕССИИ garminconnect и выгрузить в
     датасет, чтобы новый контейнер использовал свежий токен без обращения к oauth-сервису.
