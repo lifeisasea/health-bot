@@ -38,6 +38,20 @@ def available() -> bool:
     return tokens_present()
 
 
+def sync_tokens() -> None:
+    """Скачать свежие токены из датасета (их каждые 8 ч обновляет домашний Raspberry Pi)
+    и сбросить сессию. Так сервер всегда использует уже готовый валидный токен и НЕ
+    обращается к oauth-сервису Garmin (который для IP Render заблокирован → 429)."""
+    global _client_cache
+    TOKDIR.mkdir(parents=True, exist_ok=True)
+    got = False
+    for f in _TOKEN_FILES:
+        if persistence.download(f"garmin/{f}", TOKDIR / f):
+            got = True
+    if got:
+        _client_cache = None  # пересоздать сессию из свежих токенов
+
+
 _client_cache = None
 _COOLDOWN_KEY = "garmin_cooldown_until"  # ISO-время в profile (переживает перезапуски)
 
@@ -106,25 +120,6 @@ def client():
             except Exception:
                 pass
         raise
-
-
-def persist_tokens():
-    """Сохранить (возможно обновлённые) токены ИЗ СЕССИИ garminconnect и выгрузить в
-    датасет, чтобы новый контейнер использовал свежий токен без обращения к oauth-сервису.
-    ВАЖНО: пустые файлы НЕ выгружаем (иначе затрём рабочие токены)."""
-    if _client_cache is None:
-        return
-    try:
-        _client_cache.garth.dump(str(TOKDIR))  # токены именно этой сессии
-    except Exception as e:
-        log.warning("garth dump: %s", e)
-        return
-    for f in _TOKEN_FILES:
-        path = TOKDIR / f
-        if path.exists() and path.stat().st_size > 0:
-            persistence.upload(path, f"garmin/{f}")
-        else:
-            log.warning("Пропуск выгрузки пустого токена %s", f)
 
 
 def _num(*vals):
