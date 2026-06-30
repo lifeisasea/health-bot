@@ -15,6 +15,7 @@ log = logging.getLogger("health-bot.persistence")
 
 REMOTE_NAME = "health.db"
 _dirty = False
+_consec_fail = 0  # подряд неудачных выгрузок (для оповещения только при стойком сбое)
 
 
 def enabled() -> bool:
@@ -105,7 +106,7 @@ def mark_dirty() -> None:
 
 def flush_if_dirty() -> None:
     """Выгрузить базу в датасет, если были изменения. Вызывается из планировщика."""
-    global _dirty
+    global _dirty, _consec_fail
     if not enabled() or not _dirty or not config.DB_PATH.exists():
         return
     try:
@@ -117,16 +118,22 @@ def flush_if_dirty() -> None:
             commit_message="backup",
         )
         _dirty = False
+        _consec_fail = 0
         log.info("База выгружена в бэкап HF.")
     except Exception as e:
-        log.warning("Не удалось выгрузить бэкап: %s", e)
-        try:
-            import alerts
+        _consec_fail += 1
+        log.warning("Не удалось выгрузить бэкап (%d-й раз подряд): %s", _consec_fail, e)
+        # данные не теряются — флаг _dirty остаётся, выгрузим на следующем заходе.
+        # Беспокоим пользователя только при СТОЙКОМ сбое (≥3 подряд ≈ 9 минут),
+        # а не на разовых 504/таймаутах со стороны Hugging Face.
+        if _consec_fail >= 3:
+            try:
+                import alerts
 
-            alerts.notify(
-                "backup",
-                "⚠️ Не удалось сохранить твои данные в облако (бэкап). Я продолжаю работать, "
-                "но если это повторяется — скажи, разберёмся.",
-            )
-        except Exception:
-            pass
+                alerts.notify(
+                    "backup",
+                    "⚠️ Уже несколько раз подряд не удаётся сохранить данные в облако. "
+                    "Я продолжаю работать, данные не потеряны — но если не пройдёт само, скажи, разберёмся.",
+                )
+            except Exception:
+                pass
