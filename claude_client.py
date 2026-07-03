@@ -48,11 +48,15 @@ async def chat(
             }
         )
 
+    # system как кэшируемый блок: постоянная часть промпта (персона, профиль, анализы)
+    # переиспользуется между запросами → повторное чтение в ~10× дешевле (кэш живёт ~5 мин).
+    system_block = [{"type": "text", "text": system, "cache_control": {"type": "ephemeral"}}]
+
     msg = await _client.messages.create(
         model=config.ANTHROPIC_MODEL,
         max_tokens=max_tokens,
         temperature=temperature,
-        system=system,
+        system=system_block,
         messages=[{"role": "user", "content": content}],
     )
     parts = [b.text for b in msg.content if getattr(b, "type", "") == "text"]

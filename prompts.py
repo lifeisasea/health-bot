@@ -129,9 +129,12 @@ def _labs_block() -> str:
         f"АНАЛИЗЫ: в истории {ov['count']} показателей "
         f"({ov['date_min']}–{ov['date_max']}), {ov['markers']} разных."
     ]
-    if ov["abnormal"]:
+    # генетические полиморфизмы (категория «Генетика…») — постоянные, для советов по
+    # питанию/образу жизни не нужны, только раздувают контекст. В /labs они остаются.
+    abnormal = [r for r in ov["abnormal"] if "енетик" not in (r.get("category") or "")]
+    if abnormal:
         lines.append("Последние значения ВНЕ нормы (учитывай в рекомендациях по питанию/образу жизни):")
-        for r in ov["abnormal"][:25]:
+        for r in abnormal[:25]:
             arrow = r["flag"]
             lines.append(
                 f"  {arrow} {r['name']}: {r['value']} {r['unit']} "

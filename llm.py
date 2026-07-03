@@ -1,16 +1,34 @@
-"""Маршрутизатор моделей: MiniMax — основная, Claude — резерв.
+"""Маршрутизатор моделей.
 
-Логика: пробуем MiniMax. Если он упал/пуст/заблокирован модерацией или не вернул
-ожидаемый JSON — и задан ключ Claude — повторяем запрос на Claude.
+Основная модель задаётся в config.PRIMARY_MODEL ("claude" = Sonnet, или "minimax").
+Вторая используется как резерв, если основная упала/пуста/не дала JSON.
 """
 import logging
 from typing import Optional
 
 import claude_client
+import config
 import minimax_client
 from minimax_client import extract_json  # noqa: F401  (ре-экспорт для удобства)
 
 log = logging.getLogger("health-bot.llm")
+
+
+def _order(force_claude: bool = False) -> list:
+    """Порядок провайдеров: [основной, резервный]. Недоступный Claude выкидываем."""
+    if force_claude:
+        return ["claude"] if claude_client.available() else ["minimax"]
+    primary = "claude" if config.PRIMARY_MODEL == "claude" else "minimax"
+    order = [primary, "minimax" if primary == "claude" else "claude"]
+    return [p for p in order if p != "claude" or claude_client.available()]
+
+
+async def _call(provider, system, user_text, image, max_tokens, temperature):
+    if provider == "claude":
+        return await claude_client.chat(
+            system, user_text, image=image, max_tokens=max_tokens, temperature=temperature
+        )
+    return await minimax_client.chat(system, user_text, image, max_tokens, temperature)
 
 
 async def chat(
@@ -21,17 +39,17 @@ async def chat(
     temperature: float = 0.4,
     force_claude: bool = False,
 ) -> str:
-    """Текстовый ответ с авто-резервом на Claude."""
-    if force_claude and claude_client.available():
-        return await claude_client.chat(system, user_text, image=image, max_tokens=max_tokens, temperature=temperature)
-
-    try:
-        return await minimax_client.chat(system, user_text, image, max_tokens, temperature)
-    except Exception as e:
-        if claude_client.available():
-            log.warning("MiniMax не справился (%s) → резерв Claude", e)
-            return await claude_client.chat(system, user_text, image=image, max_tokens=max_tokens, temperature=temperature)
-        raise
+    """Текстовый ответ: основная модель, при сбое — резерв."""
+    order = _order(force_claude)
+    last = None
+    for i, prov in enumerate(order):
+        try:
+            return await _call(prov, system, user_text, image, max_tokens, temperature)
+        except Exception as e:
+            last = e
+            if i + 1 < len(order):
+                log.warning("%s не справился (%s) → резерв %s", prov, e, order[i + 1])
+    raise last if last else RuntimeError("нет доступных моделей")
 
 
 async def chat_json(
@@ -40,27 +58,21 @@ async def chat_json(
     image: Optional[bytes] = None,
     max_tokens: int = 1200,
 ) -> Optional[dict]:
-    """Ответ, из которого нужен JSON. Если MiniMax не дал валидный JSON — резерв Claude."""
-    try:
-        raw = await minimax_client.chat(system, user_text, image, max_tokens, temperature=0.2)
-        parsed = extract_json(raw)
-        if parsed:
-            return parsed
-        log.warning("MiniMax вернул не-JSON → пробую резерв")
-    except Exception as e:
-        log.warning("MiniMax не справился при JSON (%s) → резерв", e)
-
-    if claude_client.available():
-        raw = await claude_client.chat(system, user_text, image=image, max_tokens=max_tokens, temperature=0.2)
-        return extract_json(raw)
+    """Ответ, из которого нужен JSON. Если основная не дала валидный JSON — резерв."""
+    for i, prov in enumerate(_order()):
+        try:
+            raw = await _call(prov, system, user_text, image, max_tokens, 0.2)
+            parsed = extract_json(raw)
+            if parsed:
+                return parsed
+            log.warning("%s вернул не-JSON", prov)
+        except Exception as e:
+            log.warning("%s не справился при JSON (%s)", prov, e)
     return None
 
 
 async def extract_labs(text: str, image=None, pdf=None) -> Optional[dict]:
-    """Распознать показатели анализа. Анализы важнее точностью — приоритет у Claude.
-
-    PDF умеет только Claude; для фото при отсутствии Claude используем MiniMax.
-    """
+    """Распознать показатели анализа. Приоритет у Claude (зрение/док-ты точнее; PDF только он)."""
     from prompts import lab_extraction_prompt
 
     sys = lab_extraction_prompt()

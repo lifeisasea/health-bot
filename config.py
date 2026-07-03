@@ -20,6 +20,9 @@ MINIMAX_MODEL = os.getenv("MINIMAX_MODEL", "MiniMax-M3").strip()
 ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "").strip()
 ANTHROPIC_MODEL = os.getenv("ANTHROPIC_MODEL", "claude-sonnet-4-6").strip()
 
+# Основная модель: claude (Sonnet) или minimax. Вторая — резерв.
+PRIMARY_MODEL = os.getenv("PRIMARY_MODEL", "claude").strip().lower()
+
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
 OWNER_ID = int(os.getenv("OWNER_ID", "0") or "0")
 
