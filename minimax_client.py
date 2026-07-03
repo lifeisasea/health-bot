@@ -44,6 +44,27 @@ def downscale_image(data: bytes, max_side: int = 1024) -> bytes:
         return data  # если не вышло — отправим как есть
 
 
+def pdf_to_images(pdf_bytes: bytes, max_pages: int = 10, dpi: int = 150) -> list:
+    """Отрендерить страницы PDF в JPEG-картинки (для надёжного OCR сканов)."""
+    try:
+        import fitz  # pymupdf
+    except Exception:
+        return []
+    try:
+        doc = fitz.open(stream=pdf_bytes, filetype="pdf")
+    except Exception:
+        return []
+    out = []
+    for i, page in enumerate(doc):
+        if i >= max_pages:
+            break
+        try:
+            out.append(page.get_pixmap(dpi=dpi).tobytes("jpeg"))
+        except Exception:
+            continue
+    return out
+
+
 def _image_part(data: bytes) -> dict:
     b64 = base64.b64encode(downscale_image(data)).decode()
     return {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{b64}"}}

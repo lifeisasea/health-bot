@@ -16,10 +16,16 @@ def available() -> bool:
     return _client is not None
 
 
+def _img_block(data: bytes, max_side: int) -> dict:
+    b64 = base64.b64encode(downscale_image(data, max_side=max_side)).decode()
+    return {"type": "image", "source": {"type": "base64", "media_type": "image/jpeg", "data": b64}}
+
+
 async def chat(
     system: str,
     user_text: str,
     image: Optional[bytes] = None,
+    images: Optional[list] = None,
     pdf: Optional[bytes] = None,
     max_tokens: int = 1200,
     temperature: float = 0.4,
@@ -29,13 +35,9 @@ async def chat(
 
     content: list = [{"type": "text", "text": user_text}]
     if image is not None:
-        b64 = base64.b64encode(downscale_image(image)).decode()
-        content.append(
-            {
-                "type": "image",
-                "source": {"type": "base64", "media_type": "image/jpeg", "data": b64},
-            }
-        )
+        content.append(_img_block(image, 1024))
+    for im in images or []:  # страницы PDF — крупнее ради читаемости таблиц
+        content.append(_img_block(im, 1568))
     if pdf is not None:
         content.append(
             {

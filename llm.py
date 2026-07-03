@@ -77,9 +77,28 @@ async def extract_labs(text: str, image=None, pdf=None) -> Optional[dict]:
 
     sys = lab_extraction_prompt()
     if claude_client.available():
-        raw = await claude_client.chat(sys, text, image=image, pdf=pdf, max_tokens=4000, temperature=0.1)
-        return extract_json(raw)
+        # большой лимит вывода: крупные панели дают длинный JSON, иначе он обрежется
+        raw = await claude_client.chat(sys, text, image=image, pdf=pdf, max_tokens=8000, temperature=0.1)
+        parsed = extract_json(raw)
+        # запасной путь для PDF: если прямой разбор дал мало (скан/сложный документ) —
+        # рендерим страницы в картинки и распознаём по ним (OCR стабильнее)
+        if pdf is not None and (not parsed or len(parsed.get("items") or []) < 2):
+            imgs = minimax_client.pdf_to_images(pdf)
+            if imgs:
+                log.info("PDF дал мало показателей → пробую по картинкам (%d стр.)", len(imgs))
+                raw2 = await claude_client.chat(
+                    sys, "Распознай ВСЕ показатели со всех страниц.",
+                    images=imgs, max_tokens=8000, temperature=0.1,
+                )
+                parsed2 = extract_json(raw2)
+                if parsed2 and len(parsed2.get("items") or []) >= len((parsed or {}).get("items") or []):
+                    parsed = parsed2
+        return parsed
     if pdf is not None:
-        return None  # PDF без Claude не разобрать
-    raw = await minimax_client.chat(sys, text, image=image, max_tokens=4000, temperature=0.1)
+        imgs = minimax_client.pdf_to_images(pdf)
+        if not imgs:
+            return None  # PDF без Claude и без рендера не разобрать
+        raw = await minimax_client.chat(sys, "Распознай показатели.", image=imgs[0], max_tokens=8000, temperature=0.1)
+        return extract_json(raw)
+    raw = await minimax_client.chat(sys, text, image=image, max_tokens=8000, temperature=0.1)
     return extract_json(raw)
