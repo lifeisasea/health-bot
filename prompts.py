@@ -42,7 +42,45 @@ def _context_block() -> str:
         f"АКТИВНЫЕ СОСТОЯНИЯ ЗДОРОВЬЯ:\n{states_txt}\n"
         f"{_notes_block()}"
         f"{_garmin_block()}"
+        f"{_trends_block()}"
         f"{_labs_block()}"
+    )
+
+
+def _trends_block() -> str:
+    """Сводка по дням за 2 недели — чтобы бот видел тренды (еда/шаги/сон/тренировки)."""
+    import garmin_client
+    from datetime import timedelta
+
+    today = config.today_local()
+    lo = (today - timedelta(days=13)).isoformat()
+    gmap = {g["date"]: g for g in db.garmin_range(lo, today.isoformat())}
+    acts = {}
+    for a in db.garmin_activities_range(lo, today.isoformat()):
+        acts.setdefault(a["date"], []).append(garmin_client.type_ru(a.get("type")))
+
+    rows = []
+    for i in range(13, -1, -1):
+        d = (today - timedelta(days=i)).isoformat()
+        t = db.day_totals(d)
+        g = gmap.get(d, {})
+        parts = []
+        if t["count"]:
+            parts.append(f"еда ~{t['calories']} ккал (Б{t['protein_g']}/Ж{t['fat_g']}/У{t['carbs_g']})")
+        if g.get("steps"):
+            parts.append(f"{g['steps']} шаг")
+        if g.get("sleep_hours"):
+            parts.append(f"сон {g['sleep_hours']}ч")
+        if acts.get(d):
+            parts.append("трен: " + "+".join(acts[d]))
+        if parts:
+            rows.append(f"  {d[5:]}: " + ", ".join(parts))
+    if not rows:
+        return ""
+    return (
+        "ТРЕНДЫ ПО ДНЯМ (последние 2 недели — используй для выводов о динамике питания и активности):\n"
+        + "\n".join(rows)
+        + "\n"
     )
 
 
@@ -129,8 +167,8 @@ def _labs_block() -> str:
         f"АНАЛИЗЫ: в истории {ov['count']} показателей "
         f"({ov['date_min']}–{ov['date_max']}), {ov['markers']} разных."
     ]
-    # генетические полиморфизмы (категория «Генетика…») — постоянные, для советов по
-    # питанию/образу жизни не нужны, только раздувают контекст. В /labs они остаются.
+    # разделяем: обычные отклонения (текущие) и генетика (постоянный фон)
+    genetic = [r for r in ov["abnormal"] if "енетик" in (r.get("category") or "")]
     abnormal = [r for r in ov["abnormal"] if "енетик" not in (r.get("category") or "")]
     if abnormal:
         lines.append("Последние значения ВНЕ нормы (учитывай в рекомендациях по питанию/образу жизни):")
@@ -142,6 +180,12 @@ def _labs_block() -> str:
             )
     else:
         lines.append("Свежих отклонений нет.")
+    if genetic:
+        lines.append(
+            "ГЕНЕТИКА (постоянный фон — важно при риске тромбозов/тромбофилии, "
+            "советах по активности и гидратации, трактовке новых анализов свёртывания):"
+        )
+        lines.append("  " + "; ".join(f"{r['name']} {r['value']}" for r in genetic))
     lines.append(
         "Это данные для контекста, а не диагноз. Можешь ссылаться на конкретный показатель, "
         "но при тревожных значениях советуй обсудить с врачом."
