@@ -275,25 +275,46 @@ async def cmd_summary(m: Message):
 
 # ---------------- фото еды ----------------
 
+async def _handle_lab_image(m: Message, data: bytes):
+    """Фото оказалось бланком анализов — распознаём как анализ."""
+    await m.answer("Похоже на анализ — читаю показатели… 🧪")
+    lab = await llm.extract_labs("Распознай показатели из этого анализа.", image=data)
+    if not lab or not lab.get("items"):
+        await m.answer("Не получилось разобрать анализ 😕 Пришли более чёткое фото или PDF.")
+        return
+    added, abn = _store_lab_doc(lab)
+    reply = f"✅ Сохранила анализ от {lab.get('date', '?')}: {added} показателей."
+    if abn:
+        reply += "\n\nВне нормы:\n" + "\n".join(
+            f"{r['flag']} {r['name']}: {r['value']} {r['unit']} (норма {r['reference']})" for r in abn[:15]
+        )
+    await m.answer(reply[:4000])
+
+
 @dp.message(F.photo)
 async def on_photo(m: Message):
-    await m.answer("Смотрю фото… 🍽")
+    await m.answer("Смотрю фото… 👀")
     photo = m.photo[-1]
     file = await bot.get_file(photo.file_id)
-    buf = await bot.download_file(file.file_path)
-    data = buf.read()
+    data = (await bot.download_file(file.file_path)).read()
 
-    # сохраняем оригинал
-    photo_path = config.PHOTOS_DIR / f"{photo.file_unique_id}.jpg"
-    photo_path.write_bytes(data)
-
-    caption = m.caption or "Определи блюдо и оцени КБЖУ."
+    caption = m.caption or "Определи, что на фото."
     parsed = await chat_json(prompts.food_logging_prompt(), caption, image=data)
-
     if not parsed:
-        await m.answer("Не получилось разобрать блюдо 😕 Попробуй другое фото или опиши словами.")
+        await m.answer("Не получилось разобрать фото 😕 Попробуй другое или опиши словами.")
         return
 
+    kind = (parsed.get("type") or "food").strip().lower()
+    if kind == "lab":
+        await _handle_lab_image(m, data)
+        return
+    if kind == "other":
+        await m.answer("Хм, это не похоже ни на еду, ни на анализ. Если это блюдо — опиши словами, запишу.")
+        return
+
+    # еда — сохраняем оригинал и записываем в дневник
+    photo_path = config.PHOTOS_DIR / f"{photo.file_unique_id}.jpg"
+    photo_path.write_bytes(data)
     db.add_meal(parsed, photo_path=str(photo_path))
     reply = (
         f"📝 {parsed.get('description', 'блюдо')}\n"
