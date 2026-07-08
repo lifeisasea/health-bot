@@ -312,19 +312,55 @@ def router_prompt() -> str:
 
 
 def daily_summary_prompt(day: str = None) -> str:
+    import garmin_client
+
     today = day or config.today_local().isoformat()
     totals = db.day_totals(today)
     meals = db.meals_for_day(today)
     listing = "\n".join(
         f"- {m['description']} (~{round(m['calories'] or 0)} ккал)" for m in meals
     ) or "за день не записано ни одного приёма пищи"
+
+    # метрики Garmin ИМЕННО за разбираемый день (а не «последние»)
+    g = next(iter(db.garmin_range(today, today)), None) or {}
+    acts = db.garmin_activities_range(today, today)
+    gp = []
+    if g.get("sleep_hours"):
+        gp.append(f"сон {g['sleep_hours']} ч" + (f" (оценка {g['sleep_score']})" if g.get("sleep_score") else ""))
+    if g.get("steps"):
+        gp.append(f"шаги {g['steps']}")
+    if g.get("resting_hr"):
+        gp.append(f"пульс покоя {g['resting_hr']}")
+    if g.get("stress_avg") is not None:
+        gp.append(f"стресс {g['stress_avg']}")
+    if g.get("body_battery") is not None:
+        gp.append(f"body battery {g['body_battery']}")
+    if g.get("hrv"):
+        gp.append(f"HRV {g['hrv']}")
+    if acts:
+        gp.append("тренировки: " + ", ".join(
+            " ".join(filter(None, [
+                garmin_client.type_ru(a.get("type")),
+                f"{a['distance_km']} км" if a.get("distance_km") else None,
+                f"{a['duration_min']} мин" if a.get("duration_min") else None,
+            ])) for a in acts
+        ))
+    garmin_day = (
+        f"АКТИВНОСТЬ И ВОССТАНОВЛЕНИЕ ЗА ЭТОТ ДЕНЬ ({today}): " + ", ".join(gp) + "."
+        if gp else f"Данных Garmin за {today} нет."
+    )
+
     return (
         BASE_PERSONA
         + "\n\n"
         + _context_block()
         + f"\nПИТАНИЕ ЗА ДЕНЬ ({today}):\n{listing}\n"
         f"Итого ≈ {totals['calories']} ккал "
-        f"(Б {totals['protein_g']} / Ж {totals['fat_g']} / У {totals['carbs_g']}).\n\n"
-        "ЗАДАЧА: дай короткий дружелюбный разбор дня по питанию: что хорошо, что не очень "
-        "и что улучшить завтра. 4–6 строк, по делу. Учитывай аллергии и цель."
+        f"(Б {totals['protein_g']} / Ж {totals['fat_g']} / У {totals['carbs_g']}).\n"
+        f"{garmin_day}\n\n"
+        "ЗАДАЧА: дай короткий дружелюбный разбор ЭТОГО дня — и по питанию, И по активности/"
+        "восстановлению (сон, шаги, тренировки, пульс покоя, стресс, body battery). "
+        "Обязательно свяжи их между собой: хватило ли еды под нагрузку, как сон и восстановление "
+        "соотносятся с тренировкой и питанием. Что хорошо, что не очень, что улучшить завтра. "
+        "5–8 строк, по делу. Учитывай аллергии, цель и состояния здоровья."
     )

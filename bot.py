@@ -269,7 +269,9 @@ async def cmd_garmin(m: Message):
 @dp.message(Command("summary"))
 async def cmd_summary(m: Message):
     await m.answer("Считаю разбор дня…")
-    text = await chat(prompts.daily_summary_prompt(), "Сделай разбор питания за сегодня.")
+    text = await chat(
+        prompts.daily_summary_prompt(), "Сделай разбор сегодняшнего дня: питание + активность и восстановление."
+    )
     await m.answer(text)
 
 
@@ -449,9 +451,14 @@ async def send_daily_summary():
     now = config.now_local()
     target = config.today_local() if now.hour >= 6 else (config.today_local() - timedelta(days=1))
     day = target.isoformat()
-    if not db.meals_for_day(day):
-        return  # нечего разбирать
-    text = await chat(prompts.daily_summary_prompt(day), f"Сделай разбор питания за {day}.")
+    has_food = bool(db.meals_for_day(day))
+    has_garmin = bool(db.garmin_range(day, day) or db.garmin_activities_range(day, day))
+    if not (has_food or has_garmin):
+        return  # совсем нечего разбирать
+    text = await chat(
+        prompts.daily_summary_prompt(day),
+        f"Сделай разбор дня {day}: питание + активность и восстановление.",
+    )
     await bot.send_message(config.OWNER_ID, f"🌙 Разбор дня ({day}):\n\n" + text)
 
 
