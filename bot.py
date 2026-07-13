@@ -344,6 +344,7 @@ _KIND_LABEL = {"illness": "болезнь", "ivf": "программа ЭКО", 
 def apply_actions(actions: list) -> list[str]:
     """Применить распознанные действия к профилю. Вернуть подтверждения для пользователя."""
     notes: list[str] = []
+    meals_changed = False
     active_kinds = {s["kind"] for s in db.active_states()}
     for a in actions or []:
         t = (a.get("type") or "").strip()
@@ -383,11 +384,14 @@ def apply_actions(actions: list) -> list[str]:
             }
             if (parsed.get("description") or "").strip():
                 db.add_meal(parsed)
+                meals_changed = True
                 notes.append(
                     f"🍽 Записала: {parsed['description']} (~{round(parsed.get('calories') or 0)} ккал)"
                 )
         elif t == "delete_meal":
             old = db.delete_meal(a.get("meal_id"), (a.get("match") or "").strip())
+            if old:
+                meals_changed = True
             notes.append(f"🗑 Удалила запись: {old}" if old else "Не нашла запись для удаления.")
         elif t == "correct_meal":
             parsed = {
@@ -396,11 +400,19 @@ def apply_actions(actions: list) -> list[str]:
             }
             old = db.correct_meal(a.get("meal_id"), (a.get("match") or "").strip(), parsed)
             if old is not None:
+                meals_changed = True
                 notes.append(f"✏️ Исправила «{old}» → «{parsed.get('description')}»")
             else:
                 today_meals = db.meals_for_day(config.today_local().isoformat())
                 lst = "\n".join(f"#{mm['id']}: {mm['description'][:60]}" for mm in today_meals) or "—"
                 notes.append("⚠️ Не поняла, какую запись исправить. Уточни номер. Сегодня записано:\n" + lst)
+    if meals_changed:
+        # авторитетный итог из дневника — модель сама итог НЕ считает
+        t = db.day_totals(config.today_local().isoformat())
+        notes.append(
+            f"📊 Итого за сегодня по дневнику: {t['calories']} ккал "
+            f"(Б {t['protein_g']} / Ж {t['fat_g']} / У {t['carbs_g']})"
+        )
     return notes
 
 

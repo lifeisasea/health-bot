@@ -236,11 +236,14 @@ def correct_meal(meal_id, match: str, parsed: dict) -> Optional[str]:
         if not row:
             return None
         old = row["description"]
+        # COALESCE: не переданное моделью поле НЕ затирает прежнее значение
         c.execute(
-            "UPDATE meals SET description=?, calories=?, protein_g=?, fat_g=?, carbs_g=?, raw=? "
+            "UPDATE meals SET description=?, "
+            "calories=COALESCE(?, calories), protein_g=COALESCE(?, protein_g), "
+            "fat_g=COALESCE(?, fat_g), carbs_g=COALESCE(?, carbs_g), raw=? "
             "WHERE id=?",
             (
-                parsed.get("description", old),
+                parsed.get("description") or old,
                 parsed.get("calories"),
                 parsed.get("protein_g"),
                 parsed.get("fat_g"),
