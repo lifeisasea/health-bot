@@ -325,6 +325,12 @@ async def on_photo(m: Message):
         f"Ж {round(parsed.get('fat_g') or 0)} / "
         f"У {round(parsed.get('carbs_g') or 0)}"
     )
+    if parsed.get("portion_g"):
+        ref = {"рука": "по руке", "приборы": "по приборам", "посуда": "по посуде",
+               "стакан": "по стакану"}.get((parsed.get("scale_ref") or "").strip())
+        reply += f"\n⚖️ порция ~{round(parsed['portion_g'])} г" + (f" ({ref})" if ref else " (размер на глаз)")
+    if (parsed.get("confidence") == "low") or (parsed.get("scale_ref") in (None, "", "нет")):
+        reply += "\n📐 Хочешь точнее — клади в кадр руку или вилку; если вес не такой, просто напиши."
     if parsed.get("comment"):
         reply += f"\n\n💡 {parsed['comment']}"
     await m.answer(reply)
