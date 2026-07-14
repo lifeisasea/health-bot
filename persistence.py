@@ -118,6 +118,17 @@ def flush_if_dirty() -> None:
             commit_message="backup",
         )
         _dirty = False
+        if _consec_fail >= 3:  # был стойкий сбой, о котором уведомляли — дать отбой
+            try:
+                import alerts
+
+                alerts.notify(
+                    "backup_ok",
+                    "✅ Отбой: данные снова сохраняются в облако, всё в порядке.",
+                    cooldown_hours=1,
+                )
+            except Exception:
+                pass
         _consec_fail = 0
         log.info("База выгружена в бэкап HF.")
     except Exception as e:
