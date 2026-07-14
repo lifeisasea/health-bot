@@ -445,6 +445,13 @@ async def on_text(m: Message):
     if garmin_client.available() and any(t in txt for t in _GARMIN_TRIGGERS):
         await pull_garmin_today()  # свежие данные с часов перед ответом
     user_content = _with_history(m.text)
+    # пользователь ответил цитатой на сообщение бота — это ключевой контекст
+    if m.reply_to_message and (m.reply_to_message.text or m.reply_to_message.caption):
+        quoted = (m.reply_to_message.text or m.reply_to_message.caption)[:400]
+        user_content = (
+            f"ПОЛЬЗОВАТЕЛЬ ОТВЕЧАЕТ ЦИТАТОЙ на это сообщение бота:\n«{quoted}»\n\n"
+            + user_content
+        )
     data = await chat_json(prompts.router_prompt(), user_content)
     if not data or "reply" not in data:
         # не получили структуру — отвечаем обычным образом
