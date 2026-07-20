@@ -57,11 +57,12 @@ async def chat_json(
     user_text: str,
     image: Optional[bytes] = None,
     max_tokens: int = 1200,
+    temperature: float = 0.2,
 ) -> Optional[dict]:
     """Ответ, из которого нужен JSON. Если основная не дала валидный JSON — резерв."""
     for i, prov in enumerate(_order()):
         try:
-            raw = await _call(prov, system, user_text, image, max_tokens, 0.2)
+            raw = await _call(prov, system, user_text, image, max_tokens, temperature)
             parsed = extract_json(raw)
             if parsed:
                 return parsed

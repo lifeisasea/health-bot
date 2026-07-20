@@ -452,7 +452,8 @@ async def on_text(m: Message):
             f"ПОЛЬЗОВАТЕЛЬ ОТВЕЧАЕТ ЦИТАТОЙ на это сообщение бота:\n«{quoted}»\n\n"
             + user_content
         )
-    data = await chat_json(prompts.router_prompt(), user_content)
+    # temperature повыше — ради разнообразия советов (JSON Sonnet держит стабильно)
+    data = await chat_json(prompts.router_prompt(), user_content, temperature=0.6)
     if not data or "reply" not in data:
         # не получили структуру — отвечаем обычным образом
         reply = await chat(prompts.qa_prompt(), user_content)
