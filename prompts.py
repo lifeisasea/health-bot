@@ -71,6 +71,8 @@ def _trends_block() -> str:
             parts.append(f"{g['steps']} шаг")
         if g.get("sleep_hours"):
             parts.append(f"сон {g['sleep_hours']}ч")
+        if g.get("body_battery_wake") is not None and g.get("body_battery") is not None:
+            parts.append(f"BB {g['body_battery_wake']}→{g['body_battery']}")
         if acts.get(d):
             parts.append("трен: " + "+".join(acts[d]))
         if parts:
@@ -112,7 +114,10 @@ def _garmin_block() -> str:
         if g.get("training_readiness") is not None:
             p.append(f"готовность {g['training_readiness']}/100")
         if g.get("body_battery") is not None:
-            p.append(f"body battery {g['body_battery']}")
+            bb = f"body battery сейчас {g['body_battery']}"
+            if g.get("body_battery_wake") is not None:
+                bb += f" (после сна {g['body_battery_wake']})"
+            p.append(bb)
         if g.get("resting_hr"):
             p.append(f"пульс покоя {g['resting_hr']}")
         if g.get("stress_avg") is not None:
@@ -151,6 +156,8 @@ def _garmin_block() -> str:
         out.append("Отдельных тренировок за 7 дней в Garmin не вижу.")
 
     out.append(
+        "Body battery: главный показатель восстановления — значение ПОСЛЕ СНА (высокое = "
+        "хорошо зарядилась); низкое значение ВЕЧЕРОМ — это норма, не тревожься из-за него. "
         "Учитывай это при советах по активности: низкая готовность/плохой сон/высокий стресс → "
         "лёгкая нагрузка или отдых; хорошее восстановление → можно интенсивнее. "
         "Если пользователь упоминает тренировку — сверься со списком выше, прежде чем говорить, что её не видишь."
@@ -357,7 +364,9 @@ def daily_summary_prompt(day: str = None) -> str:
     if g.get("stress_avg") is not None:
         gp.append(f"стресс {g['stress_avg']}")
     if g.get("body_battery") is not None:
-        gp.append(f"body battery {g['body_battery']}")
+        bb = f"body battery: после сна {g['body_battery_wake']}, к концу дня {g['body_battery']}" \
+            if g.get("body_battery_wake") is not None else f"body battery {g['body_battery']}"
+        gp.append(bb)
     if g.get("hrv"):
         gp.append(f"HRV {g['hrv']}")
     if acts:

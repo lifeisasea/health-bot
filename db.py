@@ -71,6 +71,7 @@ def init() -> None:
                 resting_hr         INTEGER,
                 stress_avg         INTEGER,
                 body_battery       INTEGER,
+                body_battery_wake  INTEGER,
                 sleep_hours        REAL,
                 sleep_score        INTEGER,
                 training_readiness INTEGER,
@@ -92,6 +93,11 @@ def init() -> None:
             CREATE INDEX IF NOT EXISTS idx_gact_date ON garmin_activities(date);
             """
         )
+        # миграция для существующих баз
+        try:
+            c.execute("ALTER TABLE garmin_daily ADD COLUMN body_battery_wake INTEGER")
+        except sqlite3.OperationalError:
+            pass
 
 
 # ---------- профиль (ключ-значение) ----------
@@ -392,7 +398,7 @@ def marker_history(name: str) -> list[dict]:
 # ---------- Garmin ----------
 
 _GARMIN_FIELDS = [
-    "steps", "resting_hr", "stress_avg", "body_battery",
+    "steps", "resting_hr", "stress_avg", "body_battery", "body_battery_wake",
     "sleep_hours", "sleep_score", "training_readiness", "vo2max", "hrv",
 ]
 

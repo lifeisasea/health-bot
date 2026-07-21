@@ -151,6 +151,10 @@ def fetch_day(c, datestr: str) -> dict:
     out["body_battery"] = _num(
         summ.get("bodyBatteryMostRecentValue"), summ.get("bodyBatteryHighestValue")
     )
+    # заряд после сна — главный показатель восстановления (вечером BB всегда низкий)
+    out["body_battery_wake"] = _num(
+        summ.get("bodyBatteryAtWakeTime"), summ.get("bodyBatteryHighestValue")
+    )
 
     dto = (sleep.get("dailySleepDTO") or {}) if isinstance(sleep, dict) else {}
     secs = _num(dto.get("sleepTimeSeconds"))
